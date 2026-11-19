@@ -1,0 +1,27 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+  # - /etc/prometheus/slo.yml        # phase 11 (F-SLO)
+
+scrape_configs:
+  - job_name: engine
+    metrics_path: /metrics/
+    static_configs: [{targets: ["engine:8100"], labels: {service: engine}}]
+  - job_name: intelligence
+    metrics_path: /metrics/
+    static_configs: [{targets: ["intelligence:8200"], labels: {service: intelligence}}]
+  - job_name: api
+    metrics_path: /metrics/
+    dns_sd_configs:                  # discovers every scaled api replica
+      - names: ["api"]
+        type: A
+        port: 8080
+    relabel_configs:
+      - target_label: service
+        replacement: api
+  - job_name: prometheus
+    static_configs: [{targets: ["localhost:9090"]}]
+  # phase 11: cadvisor:8080, node-exporter:9100, notifier:8300

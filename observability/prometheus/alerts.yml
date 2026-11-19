@@ -1,0 +1,17 @@
+groups:
+  - name: fsip-basic
+    rules:
+      - alert: ContainerTargetDown
+        expr: up == 0
+        for: 30s
+        labels: {severity: critical}
+        annotations: {summary: "{{ $labels.job }} target down"}
+      - alert: ApiHighErrorRate
+        expr: |
+          sum(rate(http_requests_total{service="api",status=~"5.."}[1m]))
+            / clamp_min(sum(rate(http_requests_total{service="api"}[1m])), 1e-9) > 0.05
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "API 5xx ratio > 5%"}
+      # phase 11 adds: SimulatorDown, HighLatencyP95, EngineFallingBehind, PredictionFallbackActive, StaleData,
+      # ServiceLevelDrop, StockoutRiskCritical (06_RESILIENCE_AND_OBSERVABILITY.md §2.5)

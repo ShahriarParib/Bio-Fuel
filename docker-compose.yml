@@ -1,0 +1,137 @@
+name: fsip
+
+x-py-service: &py-service
+  restart: unless-stopped
+  env_file: .env
+  labels:
+    logging: promtail
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+services:
+  simulator:
+    image: asifmahmoud414/bup-fuel-supply-simulator:1.0.0
+    container_name: fsip-simulator
+    restart: unless-stopped
+    environment:
+      SIMULATION_SPEED: ${SIMULATION_SPEED:-0.5}
+      TICK_MINUTES: ${TICK_MINUTES:-15}
+      SIMULATOR_START_MODE: ${SIMULATOR_START_MODE:-paused}
+    ports: ["${SIM_HOST_PORT:-8000}:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/v1/health',timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  timescaledb:
+    image: timescale/timescaledb:2.17.2-pg16
+    container_name: fsip-timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fsip}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-fsip}
+    ports: ["${PG_HOST_PORT:-15432}:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fsip} -d ${POSTGRES_DB:-fsip}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: fsip-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["${REDIS_HOST_PORT:-16379}:6379"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  intelligence:
+    <<: *py-service
+    build: {context: ., dockerfile: services/intelligence/Dockerfile}
+    image: fsip/intelligence:${APP_VERSION:-dev}
+    container_name: fsip-intelligence
+    ports: ["${INTEL_HOST_PORT:-8200}:8200"]
+    deploy:
+      resources: {limits: {cpus: "1.0", memory: 768M}}
+
+  engine:
+    <<: *py-service
+    build: {context: ., dockerfile: services/engine/Dockerfile}
+    image: fsip/engine:${APP_VERSION:-dev}
+    container_name: fsip-engine
+    ports: ["${ENGINE_HOST_PORT:-8100}:8100"]
+    depends_on:
+      simulator: {condition: service_healthy}
+      timescaledb: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      # intelligence is a SOFT dependency on purpose: the engine must start and run without it (fallback forecaster)
+    deploy:
+      resources: {limits: {cpus: "1.0", memory: 512M}}
+
+  api:
+    <<: *py-service
+    build: {context: ., dockerfile: services/api/Dockerfile}
+    image: fsip/api:${APP_VERSION:-dev}
+    # no container_name: the api is scalable (docker compose up -d --scale api=3); use `docker compose stop api`
+    ports: ["${API_HOST_PORT:-18080}:8080"]   # remove this mapping before scaling >1 (the frontend proxies /api)
+    depends_on:
+      timescaledb: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    deploy:
+      resources: {limits: {cpus: "0.5", memory: 256M}}
+
+  frontend:
+    build: {context: ./frontend}
+    image: fsip/frontend:${APP_VERSION:-dev}
+    container_name: fsip-frontend
+    restart: unless-stopped
+    ports: ["${FE_HOST_PORT:-3000}:80"]
+    depends_on: [api]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  # ---------------- observability (profile: obs) ----------------
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: fsip-prometheus
+    profiles: ["obs"]
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d", "--web.enable-lifecycle"]
+    volumes:
+      - ./observability/prometheus:/etc/prometheus:ro
+      - promdata:/prometheus
+    ports: ["${PROM_HOST_PORT:-9090}:9090"]
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: fsip-grafana
+    profiles: ["obs"]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports: ["${GRAFANA_HOST_PORT:-13001}:3000"]
+    depends_on: [prometheus]
+
+volumes:
+  pgdata: {}
+  redisdata: {}
+  promdata: {}
+  grafanadata: {}

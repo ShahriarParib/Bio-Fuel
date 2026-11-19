@@ -1,0 +1,17 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+node_modules/
+dist/
+coverage/
+loadtest/out/
+evaluation/reports/**/*.json
+services/intelligence/data/*.parquet
+*.log
+*.egg-info/
+*.tsbuildinfo
+.DS_Store

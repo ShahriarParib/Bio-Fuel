@@ -1,0 +1,31 @@
+# Local dev/test environment (union of all service deps + test tools). Pinned to well-known, stable versions
+# verified to install together on Python 3.12 (2026-11-19). Do not bump without a reason (see 20_FINAL_SPEC_LOCK.md).
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+httpx==0.27.2
+httpx-sse==0.4.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+prometheus-client==0.21.1
+structlog==24.4.0
+SQLAlchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+redis==5.2.1
+tenacity==9.0.0
+orjson==3.10.12
+numpy==2.1.3
+pandas==2.2.3
+scikit-learn==1.5.2
+lightgbm==4.5.0
+joblib==1.4.2
+PuLP==2.9.0
+highspy==1.8.1
+Jinja2==3.1.4
+python-jose[cryptography]==3.3.0
+anthropic==0.40.0
+pytest==8.3.4
+pytest-asyncio==0.24.0
+respx==0.21.1
+hypothesis==6.122.3
+ruff==0.8.4
