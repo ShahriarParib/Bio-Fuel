@@ -6,8 +6,8 @@ Format for notes: `- [x] 1.3 SimClient done. Note: <deviation or measured result
 | Phase | Status (TODO / IN PROGRESS / DONE) | Acceptance passed | Notes |
 |---:|---|---|---|
 | 00 | DONE | yes | Repo skeleton, Docker compose, fsip_common, frontend (5/5 tests + build pass), README, docs |
-| 01 | TODO | | |
-| 02 | TODO | | |
+| 01 | DONE | yes | SimClient, CircuitBreaker, validation, WorldState, SyncLoop, SSEListener, 15 unit tests pass |
+| 02 | DONE | yes | TimescaleDB models, WriteBuffer, Redis Publisher, Operator API /api/state, /api/stream, 7 tests pass |
 | 03 | TODO | | |
 | 04 | TODO | | |
 | 05 | TODO | | |
@@ -55,9 +55,9 @@ Deadline: **Thu 2026-11-26**. Feature freeze: Wed 2026-11-25 18:00.
 ### Phase 00
 - [ ] 0.1  - [ ] 0.2  - [ ] 0.3  - [ ] 0.4  - [ ] 0.5  - [ ] 0.6  - [ ] 0.7  - [ ] 0.8  - [ ] 0.9  - [ ] 0.10  - [ ] 0.11  - [ ] 0.12
 ### Phase 01
-- [ ] 1.1  - [ ] 1.2  - [ ] 1.3  - [ ] 1.4  - [ ] 1.5  - [ ] 1.6  - [ ] 1.7  - [ ] 1.8  - [ ] 1.9  - [ ] 1.10
+- [x] 1.1  - [x] 1.2  - [x] 1.3  - [x] 1.4  - [x] 1.5  - [x] 1.6  - [x] 1.7  - [x] 1.8  - [x] 1.9  - [x] 1.10
 ### Phase 02
-- [ ] 2.1  - [ ] 2.2  - [ ] 2.3  - [ ] 2.4  - [ ] 2.5  - [ ] 2.6  - [ ] 2.7  - [ ] 2.8
+- [x] 2.1  - [x] 2.2  - [x] 2.3  - [x] 2.4  - [x] 2.5  - [x] 2.6  - [x] 2.7  - [x] 2.8
 ### Phase 03
 - [ ] 3.1  - [ ] 3.2  - [ ] 3.3  - [ ] 3.4  - [ ] 3.5  - [ ] 3.6  - [ ] 3.7  - [ ] 3.8
 ### Phase 04

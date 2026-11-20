@@ -218,3 +218,57 @@ def world_issues(depots: list[Depot], stations: list[Station], routes: list[Rout
             if node.inventory[f] > node.capacity[f] * tolerance:
                 issues.append(f"{node.id}: {f} inventory {node.inventory[f]} > capacity {node.capacity[f]}")
     return issues
+
+
+class SimErrorDetail(_Base):
+    code: str = "UNKNOWN"
+    message: str = ""
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class SimValidationErrorItem(_Base):
+    loc: list[str | int] = Field(default_factory=list)
+    msg: str = ""
+    type: str = ""
+    ctx: dict[str, Any] = Field(default_factory=dict)
+
+
+class SimErrorEnvelope(_Base):
+    """Parses any simulator error shape (detail dict, error dict, or 422 validation list)."""
+    code: str = "UNKNOWN"
+    message: str = ""
+    is_fault: bool = False
+    validation_errors: list[SimValidationErrorItem] = Field(default_factory=list)
+    raw: Any = None
+
+    @classmethod
+    def from_payload(cls, status_code: int, body: Any) -> SimErrorEnvelope:
+        if isinstance(body, dict):
+            if isinstance(body.get("error"), dict):
+                err = body["error"]
+                code = err.get("code", "FAULT_INJECTED")
+                return cls(
+                    code=code,
+                    message=err.get("message", ""),
+                    is_fault=(code == "FAULT_INJECTED"),
+                    raw=body,
+                )
+            det = body.get("detail")
+            if isinstance(det, dict):
+                code = det.get("code", "UNKNOWN")
+                return cls(
+                    code=code,
+                    message=det.get("message", ""),
+                    is_fault=(code == "FAULT_INJECTED"),
+                    raw=body,
+                )
+            if isinstance(det, list):
+                val_items = [SimValidationErrorItem.model_validate(it) for it in det if isinstance(it, dict)]
+                return cls(
+                    code="VALIDATION_ERROR",
+                    message="Request payload validation failed",
+                    validation_errors=val_items,
+                    raw=body,
+                )
+        return cls(code=f"HTTP_{status_code}", message=str(body)[:200], raw=body)
+
