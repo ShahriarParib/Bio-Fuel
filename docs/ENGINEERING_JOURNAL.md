@@ -178,6 +178,28 @@ Nothing here describes real fuel infrastructure.
 - **Demo line:** "Our forecast error sits at the noise floor of the simulator itself, and when the prediction service
   dies the same model keeps running inside the engine, but the autopilot hands control back to a human."
 
+### B4: Operator console (2026-11-24, night)
+- **Goal:** an operations console where every number from B1-B3 is visible and the human can act.
+- **What we built:** `frontend/src/pages/` Overview (KPIs with the simulator's own service level as ground truth,
+  live network graph with route status and trucks on the road, station tank levels with fuel on the way, hours of
+  cover, network fuel budget, forecast quality vs noise floor), Recommendations (each one in the brief §9 alert format:
+  inventory, expected demand, recommended litres per depot, *stockout risk before → after*, unmet before → after, plus
+  signals, constraints respected and alternatives), Risk heatmap (12 station-fuel cells), Alerts (open / resolved,
+  acknowledge), Decisions (audit trail: who approved, every line from PLANNED to ARRIVED), System Health. Header: sim
+  clock, engine mode, advisory/autopilot switch, live/stale indicator, operator sign-in; a degraded banner names the
+  reason (stale data, prediction fallback). A permanent "SIMULATED ENVIRONMENT" strip (brief §26).
+- **How:** React + TanStack Query polling the api's cached state every second (works even when the event stream is
+  down), typed against the api contracts; colour is always paired with text (accessibility, projector-safe).
+- **Problems hit → fix:** after a WSL restart the engine kept a CRITICAL "missing resources" alert forever because
+  degraded reasons were never cleared when data came back (fixed + test). WSL still stopped its VM after longer idle
+  periods; `scripts/windows/start-stack.ps1` starts a hidden keep-alive process and the stack in one command.
+- **Evidence:** a headless browser (`scripts/demo/screenshots.py`) signed in, clicked *Approve & dispatch* on a live
+  recommendation and the decision became EXECUTED with its lines submitted to the simulator; screenshots in
+  `docs/evidence/screenshots/b4-*.png`; 9 frontend tests (network graph, alert card, approve disabled without a token).
+- **Judging criterion:** Working Product & UX, Demo.
+- **Demo line:** "This is the card from the brief, with real numbers: Cox's Bazar petrol, dry in 5.8 hours; ship
+  8,550 litres from Patiya and the risk goes from 100% to 0%."
+
 <!-- New entries go here, one per block (B1-B8, E1-E9). Copy the template below. -->
 
 ## 5. What we discovered about the simulator

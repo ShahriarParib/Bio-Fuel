@@ -40,7 +40,8 @@ Deadline: **Thu 2026-11-26**. Feature freeze: Wed 2026-11-25 18:00.
 | B1 Make it real | DONE 2026-11-23 | stack up + `SMOKE OK` (overall Healthy); 49 unit tests pass; ruff clean; fixtures captured; semantics below; benchmark reproduced |
 | B2 Decide & act | DONE 2026-11-23 | e2e autopilot 192 ticks: SL 1.0, unmet 0, failures 0, overflow 0 L (52 allocations, 21.6 s); approve/reject via api + audit; route cut at t+1 → 0 FAILED, cross-region route used; 26 engine + 5 auth tests incl. hypothesis property |
 | B3 Predict & detect | DONE 2026-11-24 | stockout alert 40 ticks (10 h) before the first real stockout (tongi DIESEL t=65); forecast WAPE 5.8% (noise floor ≈4.5-5.8%), 80% band coverage 79%; spike → explained alert on the next tick; intelligence stopped → fallback, confidence 0.6, back → primary; impact "risk 100% → 0%, unmet 7,375 → 458 L"; 78 tests |
-| B4-B8 | TODO | |
+| B4 Operator console | DONE 2026-11-24 | Overview (KPIs incl. simulator ground truth, live network graph, stations, fuel budget, forecast quality), Recommendations in the brief §9 card format (risk 100% → 0%), Risk heatmap, Alerts, Decisions, System Health; advisory/autopilot toggle, operator token, degraded banner; approve clicked in a real browser → EXECUTED in the simulator; 9 frontend tests; screenshots docs/evidence/screenshots/b4-*.png |
+| B5-B8 | TODO | |
 
 ## Verified simulator semantics (verified 2026-11-23 against image 1.0.0, script: plan folder reference/verify_semantics.py)
 - Arrival timing (created T, transit k): PENDING at T; IN_TRANSIT at instance tick T+1 with departure_tick = T,

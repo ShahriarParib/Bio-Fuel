@@ -17,3 +17,11 @@ export const simClock = (tick: number, tickMinutes = 15): string => {
   const mm = String(rem % 60).padStart(2, "0");
   return `Day ${day + 1} ${hh}:${mm} · t=${tick}`;
 };
+
+/** "Mirpur Fuel Station" → "Mirpur"; "Cox's Bazar Regional Station" → "Cox's Bazar" */
+export const shortName = (name: string): string =>
+  name.replace(/\s+(Fuel|Industrial|Highway|Regional)?\s*(Station|Depot)$/i, "").trim();
+
+export const shortId = (id: string): string => id.replace(/^(station|depot|route)-/, "");
+
+export const RISK_ORDER = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 } as const;

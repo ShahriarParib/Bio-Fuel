@@ -9,6 +9,7 @@ let operatorToken: string | null = null;
 export const setToken = (t: string | null) => {
   operatorToken = t;
 };
+export const getToken = () => operatorToken;
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };

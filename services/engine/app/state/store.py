@@ -90,8 +90,9 @@ class WorldState:
                     validated = validate_resource(name, res.data)
                     new_data[name] = validated
                     self.last_good_at[name] = now
-                    # Clear previous degraded reason for this resource
+                    # Clear previous degraded reasons for this resource (both transport and validation)
                     self.degraded_reasons.discard(f"resource_error:{name}")
+                    self.degraded_reasons.discard(f"validation_failed:{name}")
                 except Exception as val_err:
                     self.degraded_reasons.add(f"validation_failed:{name}")
                     log.warning("store.validation_failed", resource=name, error=str(val_err))
@@ -113,6 +114,8 @@ class WorldState:
             )
             self.last_sync_time = now
             self.last_tick = self.snapshot.instance.tick
+            # a complete snapshot exists again: boot-time "missing resources" no longer applies
+            self.degraded_reasons = {r for r in self.degraded_reasons if not r.startswith("missing_resources:")}
         else:
             missing = [k for k in resource_keys if k not in new_data]
             self.degraded_reasons.add(f"missing_resources:{','.join(missing)}")

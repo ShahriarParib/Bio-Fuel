@@ -151,3 +151,19 @@ def test_shipment_impact_is_measured_from_arrival_and_drops_sharply():
     assert imp["stockout_prob_before"] > 0.9
     assert imp["stockout_prob_after"] < 0.2
     assert imp["unmet_after"] < imp["unmet_before"]
+
+
+def test_degraded_reasons_clear_when_data_returns():
+    from app.sim.client import SimResult
+    from app.state.store import WorldState
+
+    ws = WorldState()
+    ws.apply_snapshot({"instance": SimUnavailable("boot")})
+    assert any(r.startswith("missing_resources:") for r in ws.degraded_reasons)
+    ok = {name: SimResult(data=_load(fx), stale=False, status=200, latency_ms=1.0) for name, fx in (
+        ("instance", "instance"), ("regions", "regions"), ("depots", "depots"), ("stations", "stations"),
+        ("routes", "routes"), ("events", "events"), ("supply_arrivals", "supply_arrivals"),
+        ("allocations", "allocations"), ("metrics", "metrics"))}
+    ws.apply_snapshot(ok)
+    assert ws.snapshot is not None
+    assert not ws.degraded_reasons
