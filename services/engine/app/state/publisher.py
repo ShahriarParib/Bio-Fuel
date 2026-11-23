@@ -1,6 +1,7 @@
 """Redis state publisher: caches snapshots, updates streams, and reports health."""
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -72,12 +73,13 @@ class Publisher:
         public_state = store.to_public_json()
         state_json = json.dumps(public_state)
         current_tick = str(public_state["tick"])
-        etag = f"{public_state['sim_run_id']}-{current_tick}"
+        # content hash, not run-tick: mode, data age and component health change WITHIN a tick (e.g. during an outage
+        # the tick stops), and a run-tick ETag made browsers revalidate to 304 and miss SAFE_HOLD
+        etag = hashlib.blake2b(state_json.encode(), digest_size=8).hexdigest()
 
         try:
-            # 1. Cache latest full state JSON
-            await self._redis.set("fsip:state", state_json)
-            await self._redis.set("fsip:state:tick", current_tick)
+            # 1. Cache latest full state JSON + its ETag (the api checks the small key before reading the document)
+            await self._redis.mset({"fsip:state": state_json, "fsip:state:etag": etag, "fsip:state:tick": current_tick})
 
             # 2. Add event to Redis Stream fsip:domain-events
             event_payload = {

@@ -9,10 +9,18 @@ from typing import Any
 from fastapi import APIRouter, Header, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from fsip_common.logging import get_logger
-from sqlalchemy import desc, select
 
 log = get_logger()
 router = APIRouter(prefix="/api", tags=["state"])
+
+
+_NO_STATE = {"sim_run_id": 0, "tick": 0, "sim_status": "PAUSED", "degraded": True,
+             "degraded_reasons": ["initial_sync_pending"], "stations": [], "depots": [], "routes": [], "events": [],
+             "metrics": {}}
+
+
+def _strip_etag(value: str) -> str:
+    return value.strip().removeprefix("W/").strip('"')
 
 
 @router.get("/state")
@@ -20,125 +28,48 @@ async def get_state(
     request: Request,
     if_none_match: str | None = Header(default=None, alias="If-None-Match"),
 ):
-    """Return the latest WorldState snapshot from Redis or database fallback."""
-    redis_client = getattr(request.app.state, "redis", None)
-    cached_json = None
-    is_degraded = False
+    """The latest world state as the engine published it.
 
-    # 1. Try Redis first
-    if redis_client:
+    Hot path (every open console polls this every second): compare the client's ETag with the small
+    `fsip:state:etag` key first (304, no document read), otherwise return the cached JSON bytes as they are, with no
+    parse and re-serialize. The ETag is a content hash, so a change of mode or health within a tick is never hidden.
+    Redis down → the engine's in-memory state (no ETag: never cached).
+    """
+    redis_client = getattr(request.app.state, "redis", None)
+    if redis_client is not None:
         try:
-            cached_json = await redis_client.get("fsip:state")
+            if if_none_match:
+                current = await redis_client.get("fsip:state:etag")
+                if current and _strip_etag(if_none_match) == current:
+                    return Response(status_code=304, headers={"ETag": f'"{current}"'})
+            doc, etag, tick = await redis_client.mget("fsip:state", "fsip:state:etag", "fsip:state:tick")
+            if doc:
+                headers = {"X-Data-Tick": tick or "", "Cache-Control": "no-cache",
+                           "X-Degraded": "true" if '"degraded": true' in doc else "false"}
+                if etag:
+                    headers["ETag"] = f'"{etag}"'
+                return Response(content=doc, media_type="application/json", headers=headers)
         except Exception as e:
             log.warning("api.redis_state_read_failed", error=str(e))
-            is_degraded = True
 
+    # Redis down (F10): ask the engine directly. It holds the live state in memory.
+    from ..config import get_settings
+    st = get_settings()
     state_dict: dict[str, Any] | None = None
-
-    if cached_json:
-        try:
-            state_dict = json.loads(cached_json)
-        except Exception:
-            state_dict = None
-
-    # 2. Redis down (F10): ask the engine directly. It holds the live state in memory.
+    try:
+        r = await request.app.state.http.get(f"{st.engine_internal_url}/debug/state", timeout=2.0,
+                                             headers={"X-Internal-Token": st.engine_internal_token})
+        if r.status_code == 200:
+            state_dict = r.json()
+            state_dict["degraded"] = True
+            state_dict["degraded_reasons"] = [*state_dict.get("degraded_reasons", []),
+                                              "cache down: state read from the engine directly"]
+    except Exception as eng_err:
+        log.warning("api.engine_state_fallback_failed", error=str(eng_err))
     if state_dict is None:
-        from ..config import get_settings
-        st = get_settings()
-        try:
-            r = await request.app.state.http.get(f"{st.engine_internal_url}/debug/state", timeout=2.0,
-                                                 headers={"X-Internal-Token": st.engine_internal_token})
-            if r.status_code == 200:
-                state_dict = r.json()
-                state_dict["degraded"] = True
-                state_dict["degraded_reasons"] = [*state_dict.get("degraded_reasons", []),
-                                                  "cache down: state read from the engine directly"]
-                is_degraded = True
-        except Exception as eng_err:
-            log.warning("api.engine_state_fallback_failed", error=str(eng_err))
-
-    # 3. Fallback to Database if both Redis and the engine are unavailable
-    if state_dict is None:
-        sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
-        if sessionmaker:
-            try:
-                from services.engine.app.db.models import WorldSnapshot  # type: ignore[import-not-found]
-                async with sessionmaker() as session:
-                    stmt = (
-                        select(WorldSnapshot)
-                        .order_by(desc(WorldSnapshot.sim_run_id), desc(WorldSnapshot.tick))
-                        .limit(1)
-                    )
-                    snap = (await session.execute(stmt)).scalar_one_or_none()
-                    if snap:
-                        state_dict = {
-                            "sim_run_id": snap.sim_run_id,
-                            "tick": snap.tick,
-                            "sim_time": snap.sim_time.isoformat(),
-                            "tick_minutes": 15,
-                            "sim_status": "RUNNING",
-                            "clock_label": f"t={snap.tick}",
-                            "generated_at": snap.created_at.isoformat() if snap.created_at else "",
-                            "age_seconds": 0.0,
-                            "stale": snap.stale,
-                            "degraded": True,
-                            "degraded_reasons": ["redis_cache_miss_db_fallback"],
-                            "engine_mode": "NORMAL",
-                            "operating_mode": "advisory",
-                            "policy": "optimizer",
-                            "scarcity": {"DIESEL": False, "PETROL": False, "OCTANE": False},
-                            "metrics": snap.metrics or {},
-                            "depots": snap.depots or [],
-                            "stations": snap.stations or [],
-                            "routes": snap.routes or [],
-                            "events": snap.events or [],
-                            "supply_upcoming": snap.supply or [],
-                            "allocations_active": [],
-                            "alerts_open_count": {"INFO": 0, "WARNING": 0, "CRITICAL": 0},
-                            "pending_recommendations": [],
-                            "bottleneck": None,
-                            "system": {
-                                "simulator": "UP",
-                                "sse": "UNKNOWN",
-                                "intelligence": "UNKNOWN",
-                                "db": "UP",
-                                "redis": "DOWN",
-                                "breakers": {"simulator": "CLOSED"},
-                                "forecaster": "seasonal@builtin",
-                            },
-                        }
-                        is_degraded = True
-            except Exception as db_err:
-                log.warning("api.db_state_fallback_failed", error=str(db_err))
-
-    # 3. If still nothing available, return empty initial state
-    if state_dict is None:
-        state_dict = {
-            "sim_run_id": 0,
-            "tick": 0,
-            "sim_status": "PAUSED",
-            "degraded": True,
-            "degraded_reasons": ["initial_sync_pending"],
-            "stations": [],
-            "depots": [],
-            "routes": [],
-            "events": [],
-            "metrics": {},
-        }
-        is_degraded = True
-
-    sim_run_id = state_dict.get("sim_run_id", 0)
-    current_tick = state_dict.get("tick", 0)
-    etag = f'"{sim_run_id}-{current_tick}"'
-
-    if if_none_match and if_none_match == etag:
-        return Response(status_code=304)
-
-    resp = JSONResponse(content=state_dict)
-    resp.headers["ETag"] = etag
-    resp.headers["X-Data-Tick"] = str(current_tick)
-    resp.headers["X-Degraded"] = "true" if is_degraded else "false"
-    return resp
+        state_dict = dict(_NO_STATE)
+    return JSONResponse(content=state_dict, headers={"Cache-Control": "no-store", "X-Degraded": "true",
+                                                     "X-Data-Tick": str(state_dict.get("tick", 0))})
 
 
 @router.get("/stream")
