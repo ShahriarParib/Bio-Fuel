@@ -80,43 +80,6 @@ class DemandObservationModel(Base):
     )
 
 
-class Forecast(Base):
-    __tablename__ = "forecasts"
-
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
-    sim_run_id: Mapped[int] = mapped_column(BIGINT, nullable=False)
-    made_at_tick: Mapped[int] = mapped_column(INT, nullable=False)
-    station_id: Mapped[str] = mapped_column(TEXT, nullable=False)
-    fuel_type: Mapped[str] = mapped_column(TEXT, nullable=False)
-    target_tick: Mapped[int] = mapped_column(INT, nullable=False)
-    p10: Mapped[float] = mapped_column(DOUBLE_PRECISION, nullable=False)
-    p50: Mapped[float] = mapped_column(DOUBLE_PRECISION, nullable=False)
-    p90: Mapped[float] = mapped_column(DOUBLE_PRECISION, nullable=False)
-    model_name: Mapped[str] = mapped_column(TEXT, nullable=False)
-    model_version: Mapped[str] = mapped_column(TEXT, nullable=False)
-    is_fallback: Mapped[bool] = mapped_column(BOOLEAN, default=False)
-
-    __table_args__ = (
-        Index("ix_forecasts_lookup", "sim_run_id", "station_id", "fuel_type", "target_tick"),
-    )
-
-
-class RiskAssessment(Base):
-    __tablename__ = "risk_assessments"
-
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
-    sim_run_id: Mapped[int] = mapped_column(BIGINT, nullable=False)
-    tick: Mapped[int] = mapped_column(INT, nullable=False)
-    station_id: Mapped[str] = mapped_column(TEXT, nullable=False)
-    fuel_type: Mapped[str] = mapped_column(TEXT, nullable=False)
-    inventory: Mapped[float] = mapped_column(DOUBLE_PRECISION, default=0.0)
-    inflight: Mapped[float] = mapped_column(DOUBLE_PRECISION, default=0.0)
-    hours_to_stockout: Mapped[float] = mapped_column(DOUBLE_PRECISION, default=999.0)
-    stockout_prob: Mapped[float] = mapped_column(DOUBLE_PRECISION, default=0.0)
-    risk_level: Mapped[str] = mapped_column(TEXT, default="LOW")
-    drivers: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
-
-
 class Decision(Base):
     __tablename__ = "decisions"
 
@@ -216,64 +179,6 @@ class AuditLog(Base):
     payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
 
-class ModelVersion(Base):
-    __tablename__ = "model_versions"
-
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(TEXT, nullable=False)
-    version: Mapped[str] = mapped_column(TEXT, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
-    params: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
-    artifact_path: Mapped[str | None] = mapped_column(TEXT, nullable=True)
-    is_active: Mapped[bool] = mapped_column(BOOLEAN, default=False)
-
-    __table_args__ = (
-        UniqueConstraint("name", "version", name="uq_model_versions_name_version"),
-    )
-
-
-class EvalRun(Base):
-    __tablename__ = "eval_runs"
-
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
-    scenario: Mapped[str] = mapped_column(TEXT, nullable=False)
-    policy: Mapped[str] = mapped_column(TEXT, nullable=False)
-    ticks: Mapped[int] = mapped_column(INT, nullable=False)
-    seed: Mapped[int] = mapped_column(BIGINT, nullable=False)
-    service_level: Mapped[float] = mapped_column(DOUBLE_PRECISION, default=0.0)
-    unmet_liters: Mapped[float] = mapped_column(DOUBLE_PRECISION, default=0.0)
-    failures: Mapped[int] = mapped_column(INT, default=0)
-    overflow_liters: Mapped[float] = mapped_column(DOUBLE_PRECISION, default=0.0)
-    liters_shipped: Mapped[float] = mapped_column(DOUBLE_PRECISION, default=0.0)
-    cross_region_liters: Mapped[float] = mapped_column(DOUBLE_PRECISION, default=0.0)
-    min_station_service: Mapped[float] = mapped_column(DOUBLE_PRECISION, default=0.0)
-    runtime_sec: Mapped[float] = mapped_column(DOUBLE_PRECISION, default=0.0)
-    details: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-
-
-class Ledger(Base):
-    __tablename__ = "ledger"
-
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
-    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    actor: Mapped[str] = mapped_column(TEXT, nullable=False)
-    action: Mapped[str] = mapped_column(TEXT, nullable=False)
-    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    prev_hash: Mapped[str] = mapped_column(TEXT, nullable=False)
-    hash: Mapped[str] = mapped_column(TEXT, unique=True, nullable=False)
-
-
-class FeatureFlag(Base):
-    __tablename__ = "feature_flags"
-
-    key: Mapped[str] = mapped_column(TEXT, primary_key=True)
-    value: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    updated_by: Mapped[str | None] = mapped_column(TEXT, nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-
-
 class Quarantine(Base):
     __tablename__ = "quarantine"
 
@@ -284,37 +189,3 @@ class Quarantine(Base):
     errors: Mapped[Any] = mapped_column(JSONB, nullable=False)
     raw_body: Mapped[str | None] = mapped_column(TEXT, nullable=True)
     sim_tick: Mapped[int | None] = mapped_column(INT, nullable=True)
-
-
-class AllocationReconciliation(Base):
-    __tablename__ = "allocation_reconciliation"
-
-    decision_line_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("decision_lines.id"), primary_key=True)
-    sent: Mapped[float] = mapped_column(DOUBLE_PRECISION, default=0.0)
-    received: Mapped[float] = mapped_column(DOUBLE_PRECISION, default=0.0)
-    loss: Mapped[float] = mapped_column(DOUBLE_PRECISION, default=0.0)
-    loss_reason: Mapped[str | None] = mapped_column(TEXT, nullable=True)
-    method: Mapped[str] = mapped_column(TEXT, default="estimate")
-
-
-class DecisionOutcome(Base):
-    __tablename__ = "decision_outcomes"
-
-    decision_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("decisions.id"), primary_key=True)
-    evaluated_tick: Mapped[int] = mapped_column(INT, nullable=False)
-    predicted: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
-    realised: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
-    hit: Mapped[bool | None] = mapped_column(BOOLEAN, nullable=True)
-
-
-class PlaybookRun(Base):
-    __tablename__ = "playbook_runs"
-
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
-    playbook_id: Mapped[str] = mapped_column(TEXT, nullable=False)
-    sim_run_id: Mapped[int | None] = mapped_column(BIGINT, nullable=True)
-    started_tick: Mapped[int | None] = mapped_column(INT, nullable=True)
-    status: Mapped[str] = mapped_column(TEXT, default="RUNNING")
-    steps: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, default=list)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

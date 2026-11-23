@@ -11,7 +11,7 @@ Why the platform is built the way it is, what we assumed, and every place where 
 | ADR-03 | REST as truth, SSE as trigger + polling fallback | SSE-only state | the simulator has no replay, drops slow consumers, and has no station inventory event |
 | ADR-04 | Redis snapshot cache + Postgres history | Postgres only | api p95 in ms under load; durable audit/history |
 | ADR-05 | LP rolling-horizon optimizer with heuristic fallback | pure heuristic, RL | handles coupled constraints (dispatch shared across fuels, scarcity, cross-region), explainable, deterministic; heuristic as a safety net |
-| ADR-06 | Seasonal-profile + LightGBM quantile forecast, chosen by backtest | deep learning, ARIMA | the demand process is seasonal × multiplier × bounded noise; quantiles give the uncertainty for stockout probability |
+| ADR-06 | Structural seasonal forecast (hour-of-day profile × the simulator's demand multiplier × adaptive level) with calibrated 80 % intervals | LightGBM quantile model, deep learning, ARIMA | the demand process is profile × multiplier × bounded noise; this model reaches WAPE 5.8 % against a 4.5-5.8 % noise floor, so a heavier model has almost nothing left to win (see the B3 deviation below) |
 | ADR-07 | Monte Carlo stockout probability | analytic formula | handles caps/outages/arrivals nonlinearity simply |
 | ADR-08 | Shadow twin for what-if | calling the simulator | the simulator cannot be forked; the twin gives side-effect-free projections and alternatives |
 | ADR-09 | Human-in-the-loop by default (advisory) + gated autopilot | full automation | brief §26 requires preserved human review; autopilot shows automation where it is safe |
