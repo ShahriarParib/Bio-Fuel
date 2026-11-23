@@ -43,7 +43,8 @@ Deadline: **Thu 2026-11-26**. Feature freeze: Wed 2026-11-25 18:00.
 | B4 Operator console | DONE 2026-11-24 | Overview (KPIs incl. simulator ground truth, live network graph, stations, fuel budget, forecast quality), Recommendations in the brief §9 card format (risk 100% → 0%), Risk heatmap, Alerts, Decisions, System Health; advisory/autopilot toggle, operator token, degraded banner; approve clicked in a real browser → EXECUTED in the simulator; 9 frontend tests; screenshots docs/evidence/screenshots/b4-*.png |
 | B5 Optimizer + Impact Meter | DONE 2026-11-24 | LP rolling horizon with heuristic fallback, policy switch, exact do-nothing counterfactual; matrix docs/evidence/evaluation.md: 288 ticks do-nothing 0.26-0.31 vs 0.99-1.00, 0 failed shipments; 600 ticks optimizer worst-station 0.868→0.929 |
 | B6 Fail safely | DONE 2026-11-24 | health from real traffic, mode machine, incidents, chaos proxy, break-glass, Control page + demo director; docs/evidence/resilience.md: 11/11 drills pass, detect 0.5-3.8 s, recover 0-27 s with no human action; found + fixed a Redis/DB-down DNS starvation cascade; crisis optimizer overflow 80 L → 0 |
-| B7-B8 | TODO | |
+| B7 Observe | DONE 2026-11-24 | Prometheus/Alertmanager/Loki/Promtail/cAdvisor/node-exporter; 16 alerts + 4 SLOs incl. the domain SLO with burn-rate alerts; error-budget policy = change freeze; alerts reach the UI; 4 dashboards as code; check_metrics.sh METRICS OK; drills found + fixed: autopilot-off policy collapse (99→81 %), sticky degraded flag disabling autopilot after any outage, breaker opening on a flaky (not dead) simulator, shared rate-limit bucket; resilience re-run 11/11 with the stricter recovery check |
+| B8 | TODO | |
 
 ## Verified simulator semantics (verified 2026-11-23 against image 1.0.0, script: plan folder reference/verify_semantics.py)
 - Arrival timing (created T, transit k): PENDING at T; IN_TRANSIT at instance tick T+1 with departure_tick = T,

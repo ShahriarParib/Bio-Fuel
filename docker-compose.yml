@@ -143,7 +143,68 @@ services:
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafanadata:/var/lib/grafana
     ports: ["${GRAFANA_HOST_PORT:-13001}:3000"]
-    depends_on: [prometheus]
+    depends_on: [prometheus, loki]
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: fsip-alertmanager
+    profiles: ["obs"]
+    restart: unless-stopped
+    # the webhook needs the internal token; alertmanager does not expand env vars, so the config is rendered at start
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - sed "s|__INTERNAL_TOKEN__|$${ENGINE_INTERNAL_TOKEN}|" /etc/alertmanager-src/alertmanager.yml > /tmp/am.yml
+        && exec /bin/alertmanager --config.file=/tmp/am.yml --storage.path=/alertmanager
+    environment:
+      ENGINE_INTERNAL_TOKEN: ${ENGINE_INTERNAL_TOKEN:-change-me-internal}
+    volumes: [./observability/alertmanager:/etc/alertmanager-src:ro]
+    ports: ["${ALERTMANAGER_HOST_PORT:-9093}:9093"]
+
+  loki:
+    image: grafana/loki:3.2.1
+    container_name: fsip-loki
+    profiles: ["obs"]
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./observability/loki/loki.yml:/etc/loki/loki.yml:ro
+      - lokidata:/loki
+    ports: ["${LOKI_HOST_PORT:-3100}:3100"]
+
+  promtail:
+    image: grafana/promtail:3.2.1
+    container_name: fsip-promtail
+    profiles: ["obs"]
+    restart: unless-stopped
+    command: ["-config.file=/etc/promtail/promtail.yml"]
+    volumes:
+      - ./observability/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [loki]
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: fsip-cadvisor
+    profiles: ["obs"]
+    restart: unless-stopped
+    privileged: true
+    command: ["--docker_only=true", "--housekeeping_interval=10s", "--store_container_labels=false",
+              "--whitelisted_container_labels=com.docker.compose.service"]
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    devices: ["/dev/kmsg"]
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: fsip-node-exporter
+    profiles: ["obs"]
+    restart: unless-stopped
+    command: ["--path.rootfs=/host"]
+    pid: host
+    volumes: ["/:/host:ro"]   # no rslave: the WSL2 root is not a shared mount
 
 volumes:
   breakglass: {}
@@ -151,3 +212,4 @@ volumes:
   redisdata: {}
   promdata: {}
   grafanadata: {}
+  lokidata: {}

@@ -35,7 +35,9 @@ fault() {
 clear_faults() { curl -s -X POST "$SIM/admin/faults/clear" >/dev/null; }
 sim_running() { curl -s -X POST "$SIM/admin/run" >/dev/null; }
 allocation_failures() { state '.metrics.allocation_failures'; }
-healthy='(.engine_mode == "NORMAL") and (.overall == "Healthy")'
+# recovered = health back to NORMAL AND the decision inputs are trusted again (otherwise autopilot silently stays idle:
+# a sticky degraded flag once passed every drill while confidence stayed at 0.5)
+healthy='(.engine_mode == "NORMAL") and (.overall == "Healthy") and (.data_degraded == false)'
 
 # record <id> <failure> <detected_s> <mitigation> <recovered_s> <PASS|FAIL> [note]
 record() {

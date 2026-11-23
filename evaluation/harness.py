@@ -61,7 +61,7 @@ def run(scenario: str, policy: str, ticks: int) -> dict:
     for ev in SCENARIOS[scenario]:
         c.post(f"{SIM}/admin/events", json=ev).raise_for_status()
     if policy != "do_nothing":
-        c.post(f"{API}/api/control/policy", json={"policy": policy}, headers=SUP).raise_for_status()
+        c.post(f"{API}/api/control/policy", json={"policy": policy, "override": True}, headers=SUP).raise_for_status()
         c.post(f"{API}/api/control/mode", json={"mode": "autopilot"}, headers=OP).raise_for_status()
 
     audit: dict[int, dict] = {}
@@ -86,7 +86,7 @@ def run(scenario: str, policy: str, ticks: int) -> dict:
             audit[ev["id"]] = ev
     finally:
         c.post(f"{API}/api/control/mode", json={"mode": "advisory"}, headers=OP)
-        c.post(f"{API}/api/control/policy", json={"policy": "optimizer"}, headers=SUP)
+        c.post(f"{API}/api/control/policy", json={"policy": "optimizer", "override": True}, headers=SUP)
 
     m = c.get(f"{SIM}/v1/metrics").json()
     allocs = {a["id"]: a for a in c.get(f"{SIM}/v1/allocations").json()}
@@ -98,9 +98,10 @@ def run(scenario: str, policy: str, ticks: int) -> dict:
         al = allocs.get(int(a["entity_id"])) if a.get("action") == "allocation.arrived" else None
         rec = (a.get("metadata_json") or {}).get("received") if al else None
         if al and rec is not None and al["quantity"] - rec > 0.5:
-            overflow_events.append({"allocation": al["id"], "station": al["destination_station_id"], "fuel": al["fuel_type"],
-                                    "created": al["created_tick"], "arrived": al.get("actual_arrival_tick"),
-                                    "quantity": al["quantity"], "received": round(rec, 1)})
+            overflow_events.append({"allocation": al["id"], "station": al["destination_station_id"],
+                                    "fuel": al["fuel_type"], "created": al["created_tick"],
+                                    "arrived": al.get("actual_arrival_tick"), "quantity": al["quantity"],
+                                    "received": round(rec, 1)})
     failed_l = sum(a["quantity"] for a in allocs.values() if a["status"] == "FAILED")
     per = {}
     for sid in STATIONS:

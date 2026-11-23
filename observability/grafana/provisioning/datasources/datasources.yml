@@ -6,4 +6,15 @@ datasources:
     access: proxy
     url: http://prometheus:9090
     isDefault: true
-  # phase 11: Loki (uid: loki, url: http://loki:3100), Jaeger (uid: jaeger, url: http://jaeger:16686)
+    jsonData: {timeInterval: 5s}
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+  - name: Alertmanager
+    uid: alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    jsonData: {implementation: prometheus}
