@@ -6,6 +6,7 @@ from typing import Any
 
 import redis.asyncio as aioredis
 from fsip_common.logging import get_logger
+from fsip_common.redis_guard import GuardedRedis
 from prometheus_client import Counter
 
 from .store import WorldState
@@ -26,18 +27,32 @@ class Publisher:
         self._redis: aioredis.Redis | None = None
 
     async def connect(self) -> None:
-        try:
-            self._redis = aioredis.from_url(
+        # the client is kept even if Redis is down at boot: GuardedRedis fails fast and probes every 5 s
+        if self._redis is None:
+            self._redis = GuardedRedis(aioredis.from_url(
                 self.redis_url,
                 socket_timeout=1.5,
                 socket_connect_timeout=1.5,
                 decode_responses=True,
-            )
+            ))
+        try:
             await self._redis.ping()
             log.info("redis.connected", url=self.redis_url)
         except Exception as err:
             REDIS_ERRORS_TOTAL.labels(operation="connect").inc()
             log.warning("redis.connect_failed", error=str(err))
+
+    async def ping(self) -> bool:
+        """Real round trip to Redis (reconnects if the first connect failed)."""
+        if not self._redis:
+            await self.connect()
+        if not self._redis:
+            return False
+        try:
+            return bool(await self._redis.ping())
+        except Exception:
+            REDIS_ERRORS_TOTAL.labels(operation="ping").inc()
+            return False
 
     async def close(self) -> None:
         if self._redis:

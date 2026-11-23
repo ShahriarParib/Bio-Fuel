@@ -23,6 +23,7 @@ from .intelligence.pipeline import IntelligencePipeline
 from .sim.circuit import CircuitBreaker
 from .sim.client import SimClient
 from .sim.sse import SSEListener
+from .state.health import HealthMonitor
 from .state.publisher import Publisher
 from .state.store import WorldState
 from .state.sync import LOOP_RESTARTS_TOTAL, SyncLoop
@@ -182,6 +183,16 @@ async def lifespan(app: FastAPI):
 
                 write_buffer.submit(_do_persist_demand, kind="demand")
 
+            quarantined = ws.extras.pop("quarantine", None)
+            if quarantined:
+                async def _do_quarantine(session: AsyncSession) -> None:
+                    from .db.models import Quarantine
+                    session.add_all([Quarantine(resource=q["resource"], errors={"first": q["errors"]},
+                                                raw_body=q["raw"], sim_tick=tick) for q in quarantined])
+                    await session.commit()
+
+                write_buffer.submit(_do_quarantine, kind="quarantine")
+
         hooks.append(_hook_persist_db)
 
     # Hook 0 (runs first, so the published state already contains the new recommendations): decide → act
@@ -199,6 +210,21 @@ async def lifespan(app: FastAPI):
     # order: observe/predict/detect → decide/act → publish → persist
     hooks.insert(0, decision_engine.on_cycle)
     hooks.insert(0, pipeline.on_cycle)
+    from .state import breakglass
+
+    async def _hook_breakglass(ws: WorldState) -> None:
+        """Every 4 ticks: static dispatch plan for when the console is down (served by nginx)."""
+        if ws.snapshot is None or ws.snapshot.instance.tick % 4 != 0:
+            return
+        doc = ws.to_public_json()
+        doc["pending_recommendations"] = [d for d in decision_engine.decisions.values()
+                                          if d["status"] == "PENDING_APPROVAL"]
+        try:
+            await asyncio.to_thread(breakglass.write, s.breakglass_dir, doc)
+        except OSError as err:
+            log.warning("breakglass.write_failed", error=str(err))
+
+    hooks.append(_hook_breakglass)
     app.state.decision_engine = decision_engine
     app.state.alerts = alert_manager
     app.state.forecast = forecast_service
@@ -220,6 +246,10 @@ async def lifespan(app: FastAPI):
         on_notice=lambda _notice: sync_loop.full_sync(),
     )
 
+    health = HealthMonitor(store, sim_client, sse_listener, forecast_service, decision_engine, publisher,
+                           write_buffer, get_sessionmaker, safe_hold_after_s=s.safe_hold_after_sec)
+    app.state.health = health
+
     # Attach components to app state
     app.state.sim_client = sim_client
     app.state.store = store
@@ -232,6 +262,7 @@ async def lifespan(app: FastAPI):
     tasks = [
         asyncio.create_task(_run_supervised("sync_loop", sync_loop.run)),
         asyncio.create_task(_run_supervised("sse_listener", sse_listener.run)),
+        asyncio.create_task(_run_supervised("health_monitor", health.run)),
     ]
     if write_buffer is not None:
         tasks.append(asyncio.create_task(_run_supervised("write_buffer", write_buffer.run)))
@@ -243,6 +274,7 @@ async def lifespan(app: FastAPI):
     # Teardown
     sync_loop.stop()
     sse_listener.stop()
+    health.stop()
     if write_buffer:
         write_buffer.stop()
 
@@ -299,6 +331,7 @@ async def ready():
             "degraded": store.degraded,
             "stale": store.stale,
             "last_sync_age_sec": round(last_sync_age, 2),
+            "engine_mode": store.engine_mode,
         }
 
     # No snapshot yet: probe simulator directly
@@ -317,6 +350,17 @@ async def ready():
             status_code=503,
             detail={"code": "SIM_UNREACHABLE", "message": f"Simulator unreachable: {e}"},
         ) from None
+
+
+@app.get("/internal/incidents", dependencies=[Depends(require_internal)])
+async def incidents():
+    return app.state.health.incidents.document()
+
+
+@app.get("/internal/health", dependencies=[Depends(require_internal)])
+async def internal_health():
+    store: WorldState = app.state.store
+    return {"engine_mode": store.engine_mode, **(store.extras.get("system") or {})}
 
 
 @app.get("/debug/state", dependencies=[Depends(require_internal)])

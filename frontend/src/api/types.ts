@@ -14,16 +14,29 @@ export interface ComponentHealth {
   p95_ms?: number;
   error_rate?: number;
   details?: Record<string, unknown>;
+  detail?: string;
   [k: string]: unknown;
 }
 
 export interface SystemStatus {
   overall: HealthStatus;
   engine_mode?: string;
+  mode_reasons?: string[];
+  sim_down_for_s?: number;
+  no_route_stations?: string[];
+  data_tick?: number | null;
+  data_age_seconds?: number | null;
   components: Record<string, ComponentHealth>;
   versions: Record<string, string>;
   p95_latency_ms?: number;
   error_rate?: number;
+}
+
+export interface IncidentEvent { at: string; kind: "detected" | "mitigated" | "changed" | "mode" | "recovered"; text: string }
+export interface Incident {
+  id: number; component: string; status: "OPEN" | "RESOLVED"; severity_status: string; summary: string;
+  opened_at: string; mitigated_at: string | null; resolved_at: string | null; mttr_s: number | null;
+  timeline: IncidentEvent[];
 }
 
 export interface Station {
@@ -81,6 +94,8 @@ export interface WorldState {
   allocations_active: Allocation[]; alerts_open_count: Record<Severity, number>;
   pending_recommendations: DecisionSummary[]; risk: RiskItem[]; cover: Cover | null; forecast: ForecastInfo | null;
   impact_meter?: ImpactMeter | null;
+  system?: { mode_reasons?: string[]; sim_down_for_s?: number; no_route_stations?: string[]; incidents_open?: number;
+    components?: Record<string, { status: "UP" | "DEGRADED" | "DOWN"; detail?: string }> };
 }
 
 export interface DecisionLine {

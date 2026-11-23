@@ -93,6 +93,14 @@ def run(scenario: str, policy: str, ticks: int) -> dict:
     overflow = sum(allocs[int(a["entity_id"])]["quantity"] - (a.get("metadata_json") or {}).get(
         "received", allocs[int(a["entity_id"])]["quantity"]) for a in audit.values()
         if a.get("action") == "allocation.arrived" and int(a["entity_id"]) in allocs)
+    overflow_events = []
+    for a in audit.values():
+        al = allocs.get(int(a["entity_id"])) if a.get("action") == "allocation.arrived" else None
+        rec = (a.get("metadata_json") or {}).get("received") if al else None
+        if al and rec is not None and al["quantity"] - rec > 0.5:
+            overflow_events.append({"allocation": al["id"], "station": al["destination_station_id"], "fuel": al["fuel_type"],
+                                    "created": al["created_tick"], "arrived": al.get("actual_arrival_tick"),
+                                    "quantity": al["quantity"], "received": round(rec, 1)})
     failed_l = sum(a["quantity"] for a in allocs.values() if a["status"] == "FAILED")
     per = {}
     for sid in STATIONS:
@@ -109,7 +117,7 @@ def run(scenario: str, policy: str, ticks: int) -> dict:
         "scenario": scenario, "policy": policy, "ticks": ticks, "wall_s": round(time.time() - t0, 1),
         "service_level": round(m["service_level"], 4), "unmet_liters": round(m["unmet_demand_liters"]),
         "shipped_liters": round(m["allocation_liters"]), "allocation_failures": m["allocation_failures"],
-        "failed_liters": round(failed_l), "overflow_liters": round(overflow),
+        "failed_liters": round(failed_l), "overflow_liters": round(overflow), "overflow_events": overflow_events,
         "depot_clipped_liters": round(max(0, clipped)),
         "min_station_sl": min(per.values()), "per_station_sl": per,
         "decide_ms_p50": statistics.median(plan_ms) if plan_ms else None,

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import random
 import time
+from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
@@ -57,6 +58,9 @@ class SimClient:
         self.timeout = timeout
         self.max_retries = max_retries
         self.breaker = breaker or CircuitBreaker("simulator")
+        # (monotonic time, ok, latency ms) of every attempt: health is judged from real traffic, because the
+        # simulator's /v1/health bypasses fault injection and says "ok" while every real call fails
+        self.recent: deque[tuple[float, bool, float]] = deque(maxlen=500)
         self.http = httpx.AsyncClient(
             base_url=base_url,
             timeout=timeout,
@@ -65,6 +69,22 @@ class SimClient:
 
     async def close(self) -> None:
         await self.http.aclose()
+
+    def traffic_stats(self, window_s: float = 30.0) -> dict:
+        """Error ratio and p95 latency of real simulator calls in the last `window_s` seconds."""
+        now = time.monotonic()
+        rows = [r for r in self.recent if now - r[0] <= window_s]
+        if not rows:
+            return {"requests": 0, "error_rate": None, "p95_ms": None, "last_ok_age_s": self._last_ok_age(now)}
+        lat = sorted(r[2] for r in rows)
+        return {"requests": len(rows), "error_rate": round(sum(1 for r in rows if not r[1]) / len(rows), 3),
+                "p95_ms": round(lat[int(0.95 * (len(lat) - 1))], 1), "last_ok_age_s": self._last_ok_age(now)}
+
+    def _last_ok_age(self, now: float) -> float | None:
+        for t, ok, _ in reversed(self.recent):
+            if ok:
+                return round(now - t, 1)
+        return None
 
     async def _request(
         self,
@@ -90,6 +110,7 @@ class SimClient:
                 resp = await self.http.request(method, path, json=json, params=params)
                 status_label = str(resp.status_code)
             except (httpx.TimeoutException, httpx.TransportError) as e:
+                self.recent.append((time.monotonic(), False, (time.perf_counter() - t0) * 1000.0))
                 last_exc = SimUnavailable(f"{type(e).__name__}: {e}")
                 status_label = "timeout" if isinstance(e, httpx.TimeoutException) else "error"
             else:
@@ -97,6 +118,8 @@ class SimClient:
                 latency_ms = elapsed_s * 1000.0
                 SIM_REQUEST_DURATION.labels(endpoint=ep_label, status=status_label).observe(elapsed_s)
 
+                ok_traffic = resp.status_code < 500 and resp.status_code != 429
+                self.recent.append((time.monotonic(), ok_traffic, latency_ms))
                 if resp.status_code < 400:
                     self.breaker.record_success()
                     stale = resp.headers.get("x-simulator-stale", "").lower() == "true"
