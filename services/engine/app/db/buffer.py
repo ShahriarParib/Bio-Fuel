@@ -39,6 +39,12 @@ class WriteBuffer:
         self._queue: deque[tuple[str, Callable[[AsyncSession], Awaitable[None]]]] = deque()
         self._running = False
         self._notify_event = asyncio.Event()
+        self._inflight = 0  # items popped for the batch being written right now
+
+    @property
+    def pending(self) -> int:
+        """Writes not yet in the DB: queued + the batch in flight (what an operator cares about)."""
+        return len(self._queue) + self._inflight
 
     def submit(self, fn: Callable[[AsyncSession], Awaitable[None]], kind: str = "generic") -> None:
         """Submit an async write operation to the queue. Non-blocking."""
@@ -73,20 +79,27 @@ class WriteBuffer:
                 batch: list[tuple[str, Callable[[AsyncSession], Awaitable[None]]]] = []
                 while self._queue and len(batch) < self.batch_size:
                     batch.append(self._queue.popleft())
-                DB_BUFFERED_WRITES.set(len(self._queue))
+                self._inflight = len(batch)
+                DB_BUFFERED_WRITES.set(self.pending)
 
-                # Execute batch in a single transaction
+                # Execute batch in a single transaction; bounded, so a dead DB (DNS lookups for a stopped container
+                # take ~8 s) cannot park the worker indefinitely
                 try:
-                    async with self.sessionmaker() as session:
-                        for _kind, fn in batch:
-                            await fn(session)
+                    async def _write(b=batch) -> None:
+                        async with self.sessionmaker() as session:
+                            for _kind, fn in b:
+                                await fn(session)
+                    await asyncio.wait_for(_write(), timeout=15.0)
+                    self._inflight = 0
+                    DB_BUFFERED_WRITES.set(self.pending)
                     consecutive_errors = 0
                 except Exception as db_err:
                     consecutive_errors += 1
                     # Re-queue batch to front so they aren't lost
                     for item in reversed(batch):
                         self._queue.appendleft(item)
-                    DB_BUFFERED_WRITES.set(len(self._queue))
+                    self._inflight = 0
+                    DB_BUFFERED_WRITES.set(self.pending)
 
                     backoff = min(15.0, 0.5 * (2 ** min(consecutive_errors, 5)))
                     log.warning(

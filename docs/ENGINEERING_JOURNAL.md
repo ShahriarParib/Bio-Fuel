@@ -210,6 +210,16 @@ Nothing here describes real fuel infrastructure.
 - **Judging criterion:** intelligence component, decision quality, explainability.
 - **Demo line:** "Same world, same seed: doing nothing serves 26% of demand; we serve 99%, and when fuel truly runs out the optimizer shares the shortage fairly."
 
+### B6: Fail safely: measured health, mode machine, incidents, drills (2026-11-24)
+- **Goal:** every failure in brief §11/§12 is detected, mitigated automatically, visible to the operator, and proven by a script that injects the real failure.
+- **What we built:** `services/engine/app/state/health.py` (HealthMonitor: judges per component, mode machine NORMAL/DEGRADED/SAFE_HOLD/NO_FEASIBLE_ROUTES, IncidentTracker with hysteresis), `state/breakglass.py` (static plan served by nginx at `/breakglass/latest.html`), `chaos-proxy/` (corrupts simulator payloads on demand), api `routers/system.py` (`/api/system/status` from engine truth, `/api/incidents`, `/api/demo/*` controls behind the operator token), Redis-down fallback that reads state from the engine, UI System Health (Resilience Contract panel = brief §12's four rules live, incident timeline) and Control page (simulator clock, 7 event presets, 5 fault buttons, Demo Director checklist of the brief §23 story), `scripts/chaos/*.sh` + `run_all.sh`.
+- **How / approach:** health is judged from **real traffic** (breaker, error ratio and p95 of the last 30 s, the stale header), because the simulator's `/v1/health` bypasses fault injection and answers "ok" while every real call fails. Judges and the mode machine are pure functions (unit tested); the monitor only samples every second. Incidents open after 2 bad samples and resolve after 3 good ones, so a 50% error rate is one incident, not thirty. Each drill measures from `/api/system/status`, i.e. what the operator actually sees.
+- **Tools:** FastAPI, httpx, structlog, Prometheus gauges `fsip_engine_mode` / `fsip_component_status` / `fsip_incidents_total`, docker CLI for container drills, jq.
+- **Evidence:** `docs/evidence/resilience.md` (generated). Simulator down 75 s: detected 1.6 s, SAFE_HOLD at 60.0 s, cached state served with its true age, recovered 8.4 s after the fault ended. Malformed stations: rejected, 16 payloads quarantined, alert names the field `stations.0.inventory`.
+- **Problems hit → fix:** (1) data age showed "1.7 s old" during a 60 s outage because carried-forward data reset the clock → age counts from the last fully fresh snapshot; (2) `stream_disconnect` only refuses new connections → the drill forces a reconnect; (3) the break-glass volume was created root-owned by nginx → mounted `nocopy` on the frontend so the engine image seeds the ownership; (4) **cascading failure found by the Redis drill:** with Redis stopped, every command reconnected and each DNS lookup for the dead container took ~8 s, starving the thread pool, so the simulator breaker opened and forecasts timed out although both were healthy → `GuardedRedis` (fail fast, one probe per 5 s) in engine and api; (5) the DB drill showed the same pattern inside the decision cycle → 2 s timeout + 10 s fail-fast on decision writes (ticks kept full pace: 15 in 30 s, 34 writes buffered and flushed); (6) the B5 leftover: the 80 L crisis overflow was one shipment at tick 37, planned on a cold-start forecast band fit in-sample on ~4 points per hour → band never narrower than ±12% during the first simulated day; crisis optimizer now 0 L overflow at the same service level. A closed station now also draws no fuel in projections (simulator: served = 0 during an outage).
+- **Judging criterion:** resilience, observability, operator experience.
+- **Demo line:** "Kill anything you like: we detect it in about two seconds, tell you exactly what we are doing about it, and recover on our own. Here is the stopwatch."
+
 <!-- New entries go here, one per block (B1-B8, E1-E9). Copy the template below. -->
 
 ## 5. What we discovered about the simulator
@@ -227,7 +237,7 @@ Nothing here describes real fuel infrastructure.
 | 20.6 | Architecture diagram | `docs/architecture.md` | in progress |
 | 20.7 | Deployment | Compose, CI/CD, `scripts/deploy.sh` | planned (B8) |
 | 20.8 | Observability evidence | `docs/evidence/observability.md` | planned (B7) |
-| 20.9 | Resilience demonstration | `docs/evidence/resilience.md` | planned (B6) |
+| 20.9 | Resilience demonstration | `docs/evidence/resilience.md` | done (B6) |
 | 20.10 | Load-test evidence | `docs/evidence/loadtest-report.md` | planned (B8) |
 | 20.11 | Final demo | `docs/demo-runbook.md` | planned |
 

@@ -52,10 +52,30 @@ class PlanningState:
         return 60.0 / self.tick_minutes
 
     def demand(self, key: Key, j: int, low: bool = False) -> float:
+        """Fuel the station will actually draw during tick (tick + j).
+
+        A closed station (station_outage) sells nothing: the simulator records the demand as unmet but the inventory
+        does NOT fall. Projecting normal consumption through an outage overestimates the room at arrival and the
+        surplus of a shipment is lost to overflow (measured: 80 L in the crisis scenario before this rule).
+        """
+        if self._closed(key[0], self.tick + j):
+            return 0.0
         series = (self.demand_p10 if low else self.demand_p50).get(key) or []
         if not series:
             return 0.0
         return series[j] if j < len(series) else series[-1]
+
+    def _closed(self, station_id: str, t: int) -> bool:
+        windows = self.__dict__.get("_outages")
+        if windows is None:
+            windows = {}
+            for e in self.events:
+                if e.type == "station_outage" and e.status != "RESOLVED":
+                    ids = e.parameters.get("station_ids") or list(self.stations)  # empty filter = all stations
+                    for sid in ids:
+                        windows.setdefault(sid, []).append((e.start_tick, e.end_tick))
+            self.__dict__["_outages"] = windows
+        return any(a <= t < b for a, b in windows.get(station_id, ()))
 
     def inflight_for(self, key: Key) -> list[Inflight]:
         return [i for i in self.inflight if (i.station_id, i.fuel_type) == key]

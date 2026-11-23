@@ -108,6 +108,11 @@ def forecast(history: Sequence[HistoryPoint], tick_now: int, tick_minutes: int, 
     else:
         lo, hi = -DEFAULT_REL_BAND, DEFAULT_REL_BAND
     lo, hi = min(lo, -0.02), max(hi, 0.02)
+    if len(hist) < 96:
+        # first simulated day: every hour-of-day has only a few samples and the profile is fit on those same samples,
+        # so in-sample residuals look tiny. Measured: a band that narrow let the LP fill a tank to the overflow guard
+        # and 80 L were lost (crisis, tick 37). Never narrower than the cold-start default until a full day exists.
+        lo, hi = min(lo, -DEFAULT_REL_BAND), max(hi, DEFAULT_REL_BAND)
 
     p10, p50, p90 = [], [], []
     for k in range(horizon):

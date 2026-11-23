@@ -1,0 +1,9 @@
+# Overlay for the F6 malformed-data drill: the engine reads the simulator through the chaos proxy.
+#   docker compose -f docker-compose.yml -f docker-compose.chaos.yml --profile chaos up -d chaos-proxy engine
+# Undo with `make chaos-down` (recreates the engine with the direct simulator URL).
+services:
+  engine:
+    environment:
+      SIM_BASE_URL: http://chaos-proxy:8001
+    depends_on:
+      chaos-proxy: {condition: service_started}

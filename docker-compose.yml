@@ -69,6 +69,7 @@ services:
     image: fsip/engine:${APP_VERSION:-dev}
     container_name: fsip-engine
     ports: ["${ENGINE_HOST_PORT:-8100}:8100"]
+    volumes: [breakglass:/data/breakglass]
     depends_on:
       simulator: {condition: service_healthy}
       timescaledb: {condition: service_healthy}
@@ -95,12 +96,26 @@ services:
     container_name: fsip-frontend
     restart: unless-stopped
     ports: ["${FE_HOST_PORT:-3000}:80"]
+    volumes:   # static break-glass plan, readable even when api/engine are down; nocopy so the engine seeds ownership
+      - {type: volume, source: breakglass, target: /data/breakglass, read_only: true, volume: {nocopy: true}}
     depends_on: [api]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
       interval: 10s
       timeout: 3s
       retries: 10
+
+  # ---------------- chaos (profile: chaos; `make chaos-up` points the engine at it) ----------------
+  chaos-proxy:
+    build: {context: ./chaos-proxy}
+    image: fsip/chaos-proxy:${APP_VERSION:-dev}
+    container_name: fsip-chaos-proxy
+    profiles: ["chaos"]
+    restart: unless-stopped
+    environment: {CHAOS_UPSTREAM: "http://simulator:8000"}
+    ports: ["${CHAOS_HOST_PORT:-8001}:8001"]
+    depends_on:
+      simulator: {condition: service_healthy}
 
   # ---------------- observability (profile: obs) ----------------
   prometheus:
@@ -131,6 +146,7 @@ services:
     depends_on: [prometheus]
 
 volumes:
+  breakglass: {}
   pgdata: {}
   redisdata: {}
   promdata: {}
