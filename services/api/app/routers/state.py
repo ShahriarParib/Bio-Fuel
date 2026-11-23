@@ -10,7 +10,6 @@ from fastapi import APIRouter, Header, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from fsip_common.logging import get_logger
 from sqlalchemy import desc, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 log = get_logger()
 router = APIRouter(prefix="/api", tags=["state"])
@@ -49,7 +48,11 @@ async def get_state(
             try:
                 from services.engine.app.db.models import WorldSnapshot  # type: ignore[import-not-found]
                 async with sessionmaker() as session:
-                    stmt = select(WorldSnapshot).order_by(desc(WorldSnapshot.sim_run_id), desc(WorldSnapshot.tick)).limit(1)
+                    stmt = (
+                        select(WorldSnapshot)
+                        .order_by(desc(WorldSnapshot.sim_run_id), desc(WorldSnapshot.tick))
+                        .limit(1)
+                    )
                     snap = (await session.execute(stmt)).scalar_one_or_none()
                     if snap:
                         state_dict = {
@@ -134,7 +137,7 @@ async def get_stream(
 
     async def _event_generator():
         current_id = from_id
-        last_yield_time = time.monotonic()
+        time.monotonic()
         keepalive_timer = time.monotonic()
 
         while True:
@@ -171,7 +174,7 @@ async def get_stream(
                 event_type = fields.get("event_type", "state.updated")
                 payload = json.dumps(fields)
                 yield f"id: {msg_id}\nevent: {event_type}\ndata: {payload}\n\n"
-                last_yield_time = time.monotonic()
+                time.monotonic()
                 await asyncio.sleep(0.1)
 
             if not events_read:

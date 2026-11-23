@@ -71,7 +71,7 @@ async def lifespan(app: FastAPI):
 
     # 2. In-memory State Store
     store = WorldState(
-        engine_mode=s.engine_mode,
+        engine_mode="NORMAL",  # health mode; ENGINE_MODE env is the operating mode (advisory | autopilot)
         operating_mode=s.engine_mode,
         policy=s.engine_policy,
     )
@@ -88,13 +88,40 @@ async def lifespan(app: FastAPI):
     except Exception as db_err:
         log.warning("engine.db_setup_deferred", error=str(db_err))
 
+    db_ready = asyncio.Event()
+
     async def _bootstrap_db():
         try:
             await init_db(s.database_url)
+            db_ready.set()
         except Exception as err:
             log.warning("engine.db_init_background_failed", error=str(err))
 
-    asyncio.create_task(_bootstrap_db())
+    db_task = asyncio.create_task(_bootstrap_db())
+
+    async def _on_run_start(inst, is_reset: bool) -> None:
+        """Resume or create the sim_run row; its id goes into every idempotency key."""
+        previous = store.sim_run_id
+        try:
+            await asyncio.wait_for(db_ready.wait(), timeout=30)
+            async with get_sessionmaker()() as session:
+                run, resumed = await repo.resume_or_create_sim_run(
+                    session,
+                    scenario_id=inst.scenario_id,
+                    seed=inst.seed,
+                    tick_minutes=inst.tick_minutes,
+                    tick=inst.tick,
+                    previous_run_id=previous if is_reset else None,
+                    is_reset=is_reset,
+                )
+            store.sim_run_id = run.id
+            log.info("sim_run.ready", sim_run_id=run.id, resumed=resumed, reset=is_reset, tick=inst.tick)
+        except Exception as err:
+            # DB unavailable at boot: a time-based id still keeps idempotency keys unique; history writes for this
+            # run will be retried by the buffer and dropped if the FK never resolves.
+            store.sim_run_id = int(time.time())
+            store.degraded_reasons.add("sim_run_unregistered")
+            log.error("sim_run.fallback_id", sim_run_id=store.sim_run_id, error=str(err))
 
     # 5. Define pipeline hooks to execute after each successful sync cycle
     hooks = []
@@ -142,6 +169,13 @@ async def lifespan(app: FastAPI):
 
             write_buffer.submit(_do_persist, kind="snapshot")
 
+            rows = list(ws.new_demand_rows)
+            if rows:
+                async def _do_persist_demand(session: AsyncSession) -> None:
+                    await repo.insert_demand_rows(session, sim_run_id=sim_run_id, observations=rows)
+
+                write_buffer.submit(_do_persist_demand, kind="demand")
+
         hooks.append(_hook_persist_db)
 
     # 6. Initialize Synchronization Loop and SSE Listener
@@ -150,6 +184,7 @@ async def lifespan(app: FastAPI):
         store=store,
         hooks=hooks,
         poll_interval=s.engine_poll_interval_sec,
+        on_run_start=_on_run_start,
     )
 
     sse_listener = SSEListener(
@@ -184,6 +219,7 @@ async def lifespan(app: FastAPI):
     if write_buffer:
         write_buffer.stop()
 
+    db_task.cancel()
     for t in tasks:
         t.cancel()
 

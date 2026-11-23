@@ -34,11 +34,20 @@ Deadline: **Thu 2026-11-26**. Feature freeze: Wed 2026-11-25 18:00.
 |---|---|---|---|---|
 | 1 | 2026-11-19 | D0 | | docs/progress/2026-11-19.md |
 
-## Verified simulator semantics (fill in during phase 01, task 1.9)
-- Arrival timing (created T, transit k): departure_tick = T, expected_arrival_tick = T+k (verified in planning: T=0, k=2 → expected 2, inventory up at instance tick 3). Re-confirm in 1.9.
-- Mid-transit route disruption effect: __
-- Route disrupted at creation → __ ; at departure → FAILED, no refund (already verified)
-- Dispatch cap counts PENDING from the previous tick? __
+## Sprint blocks (see ../fuel-plan-extracted/fuel-platform-plan/26_FINAL_SPRINT_PLAN.md)
+| Block | Status | Evidence |
+|---|---|---|
+| B1 Make it real | DONE 2026-11-23 | stack up + `SMOKE OK` (overall Healthy); 49 unit tests pass; ruff clean; fixtures captured; semantics below; benchmark reproduced |
+| B2-B8 | TODO | |
+
+## Verified simulator semantics (verified 2026-11-23 against image 1.0.0, script: plan folder reference/verify_semantics.py)
+- Arrival timing (created T, transit k): PENDING at T; IN_TRANSIT at instance tick T+1 with departure_tick = T,
+  expected_arrival_tick = T+k; ARRIVED and station inventory up at instance tick **T+k+1** (actual_arrival_tick = T+k).
+  Verified T=0, k=2 → inventory +943.7 (1000 − that tick's demand) at instance tick 3.
+- Mid-transit route disruption effect: **none**. Allocation already IN_TRANSIT keeps going and arrives on time (transit 3, arrived on schedule).
+- Route disrupted at creation → **409 `ROUTE_DISRUPTED`** (rejected, no fuel lost). Disrupted between creation and the departure step → FAILED, no refund (planning). So the only loss window is a disruption that *starts* at T+1.
+- Dispatch cap counts PENDING from the previous tick? **No.** Cap resets every tick; within one tick it is shared across all fuels (6,000 + 6,000 DIESEL OK, +500 PETROL → 409 `DISPATCH_CAPACITY_EXCEEDED`; next tick 5,000 OK).
+- Determinism: `policy_benchmark.py crisis lp 288` → SL 0.9913, min station 0.9609, overflow 222 L, 0 failures: identical to the planning run (`14` §5).
 
 ## Key measured numbers (fill in as you go)
 | Metric | Value | Where measured |
@@ -53,7 +62,10 @@ Deadline: **Thu 2026-11-26**. Feature freeze: Wed 2026-11-25 18:00.
 
 ## Task log
 ### Phase 00
-- [ ] 0.1  - [ ] 0.2  - [ ] 0.3  - [ ] 0.4  - [ ] 0.5  - [ ] 0.6  - [ ] 0.7  - [ ] 0.8  - [ ] 0.9  - [ ] 0.10  - [ ] 0.11  - [ ] 0.12
+- [x] 0.1  - [x] 0.2  - [x] 0.3  - [x] 0.4  - [x] 0.5  - [x] 0.6  - [x] 0.7  - [x] 0.8  - [x] 0.9  - [x] 0.10  - [x] 0.11  - [x] 0.12
+  Note (B1): first real `docker compose up` on 2026-11-23 surfaced 6 integration bugs, all fixed: SQLAlchemy union
+  annotation crash, sim_run never written (FK violation + id reset on engine restart), demand rows dropped
+  (newest-first ingest), demand never persisted, engine_mode set to "advisory", CRLF line endings (.gitattributes).
 ### Phase 01
 - [x] 1.1  - [x] 1.2  - [x] 1.3  - [x] 1.4  - [x] 1.5  - [x] 1.6  - [x] 1.7  - [x] 1.8  - [x] 1.9  - [x] 1.10
 ### Phase 02

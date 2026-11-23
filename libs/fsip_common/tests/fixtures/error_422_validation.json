@@ -1,0 +1,1 @@
+{"detail":[{"type":"literal_error","loc":["body","fuel_type"],"msg":"Input should be 'DIESEL', 'PETROL' or 'OCTANE'","input":"KEROSENE","ctx":{"expected":"'DIESEL', 'PETROL' or 'OCTANE'"}},{"type":"greater_than","loc":["body","quantity"],"msg":"Input should be greater than 0","input":-1,"ctx":{"gt":0.0}}]}

@@ -7,7 +7,6 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fsip_common.logging import get_logger
-from fsip_common.models import DemandObservation
 from prometheus_client import Counter, Gauge, Histogram
 
 from ..sim.client import SimClient, SimResult
@@ -41,11 +40,15 @@ class SyncLoop:
         store: WorldState,
         hooks: list[Callable[[WorldState], Awaitable[None]]] | None = None,
         poll_interval: float = 1.0,
+        on_run_start: Callable[[Any, bool], Awaitable[None]] | None = None,
     ) -> None:
         self.client = client
         self.store = store
         self.hooks = hooks or []
         self.poll_interval = poll_interval
+        # called with (instance, is_reset) on the first successful sync and on every detected reset
+        self.on_run_start = on_run_start
+        self._run_ready = False
 
         self._running = False
         self._is_cycling = False
@@ -154,13 +157,25 @@ class SyncLoop:
         if is_reset:
             self._handle_reset(inst.tick, inst.seed, inst.scenario_id)
 
+        # The run id must be settled (resumed or created in the DB) before anything is persisted or any
+        # idempotency key is built for this world.
+        if (is_reset or not self._run_ready) and self.on_run_start is not None:
+            await self.on_run_start(inst, is_reset)
+        self._run_ready = True
+
+        # 3. Ingest recent demand observations (12 rows per tick). Computed BEFORE moving the cursor, otherwise
+        # coalesced ticks (fast simulator, slow cycle) would silently lose demand rows. First sync / reset
+        # fetches the full window the simulator allows.
+        if is_reset or self._last_processed_tick < 0:
+            limit = 2000
+        else:
+            ticks_elapsed = max(1, current_tick - self._last_processed_tick)
+            limit = min(2000, 12 * ticks_elapsed + 12)
+
         self._last_processed_tick = current_tick
         self._last_seed = inst.seed
         self._last_scenario = inst.scenario_id
-
-        # 3. Ingest recent demand observations (12 rows per tick)
-        ticks_elapsed = max(1, current_tick - (self._last_processed_tick if not is_reset else 0))
-        limit = min(2000, 12 * ticks_elapsed + 12)
+        self.store.new_demand_rows = []
         try:
             dh_res = await self.client.demand_history(limit=limit)
             if isinstance(dh_res, SimResult) and isinstance(dh_res.data, list):
@@ -194,7 +209,9 @@ class SyncLoop:
     def _handle_reset(self, new_tick: int, new_seed: int, new_scenario: str) -> None:
         """Handle a detected simulator reset."""
         old_run = self.store.sim_run_id
-        self.store.sim_run_id += 1
+        if self.on_run_start is None:
+            # no run registry (tests / DB-less mode): a local counter is enough
+            self.store.sim_run_id += 1
         self.store.demand.clear()
         self.store.risk.clear()
         self.store.pending_recommendations.clear()

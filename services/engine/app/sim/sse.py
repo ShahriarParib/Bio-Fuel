@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import json
 import random
-import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -56,7 +55,8 @@ class SSEListener:
             url = f"{self.base_url}/v1/stream"
             try:
                 log.info("sse.connecting", url=url)
-                async with httpx.AsyncClient(timeout=httpx.Timeout(connect=5.0, read=self.silence_timeout_sec, write=5.0, pool=5.0)) as client:
+                timeout = httpx.Timeout(connect=5.0, read=self.silence_timeout_sec, write=5.0, pool=5.0)
+                async with httpx.AsyncClient(timeout=timeout) as client:
                     async with aconnect_sse(client, "GET", url) as event_source:
                         self.connected = True
                         consecutive_failures = 0
@@ -74,7 +74,7 @@ class SSEListener:
                                 break
                             await self._handle_event(sse_event.event, sse_event.data)
 
-            except (httpx.TimeoutException, httpx.TransportError, asyncio.TimeoutError) as err:
+            except (TimeoutError, httpx.TimeoutException, httpx.TransportError) as err:
                 log.warning("sse.disconnected", error=str(err), error_type=type(err).__name__)
             except asyncio.CancelledError:
                 self.connected = False

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Health-check every service via host ports (reads .env if present). Exit 0 = all healthy.
 set -uo pipefail
-[ -f .env ] && set -a && . ./.env && set +a
+# strip CR so a .env saved on Windows (CRLF) does not turn ports into "8000\r"
+[ -f .env ] && set -a && . <(tr -d '\r' < .env) && set +a
 WAIT="${SMOKE_TIMEOUT:-120}"
 CHECKS=(
   "simulator|http://localhost:${SIM_HOST_PORT:-8000}/v1/health"

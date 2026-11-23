@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def parse_sim_time(value: str | datetime) -> datetime:
@@ -10,8 +10,8 @@ def parse_sim_time(value: str | datetime) -> datetime:
     else:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def ticks_per_day(tick_minutes: int) -> int:

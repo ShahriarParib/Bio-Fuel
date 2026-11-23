@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class BaseServiceSettings(BaseSettings):
-    """Common env settings. Each service subclasses this and adds its own fields (names = env vars, case-insensitive)."""
+    """Common env settings. Each service subclasses this and adds its own fields (names = env vars, any case)."""
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
 
     app_version: str = "dev"

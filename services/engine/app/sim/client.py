@@ -13,11 +13,8 @@ from prometheus_client import Counter, Histogram
 
 from .circuit import CircuitBreaker, CircuitOpenError
 from .errors import (
-    SimDomainError,
-    SimError,
     SimFaultInjected,
     SimUnavailable,
-    SimValidationError,
     parse_error,
 )
 
@@ -207,7 +204,7 @@ class SimClient:
             self.metrics(),
         ]
         results = await asyncio.gather(*calls, return_exceptions=True)
-        return dict(zip(names, results))
+        return dict(zip(names, results, strict=False))
 
     # --- Write API (POST allocations, cancel) ---
     async def create_allocation(self, body: dict[str, Any]) -> SimResult:

@@ -1,7 +1,7 @@
 """SQLAlchemy 2 declarative database models for TimescaleDB / PostgreSQL."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
@@ -13,7 +13,6 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
-    String,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -25,7 +24,7 @@ class Base(DeclarativeBase):
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class SimRun(Base):
@@ -281,7 +280,8 @@ class Quarantine(Base):
     id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     resource: Mapped[str] = mapped_column(TEXT, nullable=False)
-    errors: Mapped[dict[str, Any] | list[Any]] = mapped_column(JSONB, nullable=False)
+    # dict or list; a `dict | list` union breaks SQLAlchemy's string annotations
+    errors: Mapped[Any] = mapped_column(JSONB, nullable=False)
     raw_body: Mapped[str | None] = mapped_column(TEXT, nullable=True)
     sim_tick: Mapped[int | None] = mapped_column(INT, nullable=True)
 

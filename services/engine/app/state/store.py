@@ -4,21 +4,12 @@ from __future__ import annotations
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fsip_common.logging import get_logger
 from fsip_common.models import (
-    Allocation,
     DemandObservation,
-    Depot,
-    Instance,
-    Region,
-    Route,
-    SimEvent,
-    SimMetrics,
-    Station,
-    SupplyArrival,
 )
 from fsip_common.timeutil import format_sim_clock
 
@@ -33,6 +24,7 @@ class WorldState:
     sim_run_id: int = 1
     snapshot: ValidatedSnapshot | None = None
     demand: dict[tuple[str, str], deque[DemandObservation]] = field(default_factory=dict)
+    new_demand_rows: list[DemandObservation] = field(default_factory=list)  # rows added by the latest cycle
     last_good_at: dict[str, float] = field(default_factory=dict)
     stale: bool = False
     degraded_reasons: set[str] = field(default_factory=set)
@@ -129,18 +121,19 @@ class WorldState:
 
         Returns count of new rows ingested.
         """
-        ingested = 0
-        for obs in observations:
+        # /v1/demand-history is newest-first: walk it oldest-first, otherwise only the newest row per series
+        # passes the "id > last id" check and every older row of a coalesced cycle is silently dropped.
+        new_rows: list[DemandObservation] = []
+        for obs in sorted(observations, key=lambda o: o.id):
             key = (obs.station_id, obs.fuel_type)
             if key not in self.demand:
                 self.demand[key] = deque(maxlen=2000)
-
-            # Avoid duplicate row insertion
             buf = self.demand[key]
             if not buf or obs.id > buf[-1].id:
                 buf.append(obs)
-                ingested += 1
-        return ingested
+                new_rows.append(obs)
+        self.new_demand_rows = new_rows
+        return len(new_rows)
 
     def inflight_allocations(self) -> list[tuple[str, str, int, float]]:
         """Return active allocations as (station_id, fuel_type, expected_arrival_tick, quantity)."""
@@ -155,7 +148,7 @@ class WorldState:
 
     def to_public_json(self) -> dict[str, Any]:
         """Format the current state into the public contract defined in 21_API_CONTRACTS.md §2.1."""
-        now_utc = datetime.now(timezone.utc).isoformat()
+        now_utc = datetime.now(UTC).isoformat()
         if not self.snapshot:
             return {
                 "sim_run_id": self.sim_run_id,

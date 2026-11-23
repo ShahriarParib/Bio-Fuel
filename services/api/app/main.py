@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import time
 from collections import defaultdict, deque
@@ -11,14 +10,14 @@ from typing import Any
 
 import httpx
 import redis.asyncio as aioredis
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fsip_common.logging import configure_logging, get_logger
 from prometheus_client import Counter, Histogram, make_asgi_app
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from .config import ApiSettings, get_settings
+from .config import get_settings
 from .routers import nodes, state
 
 log = get_logger()
@@ -249,11 +248,9 @@ async def system_status():
     comps = dict(probes)
 
     redis_client = getattr(app.state, "redis", None)
-    redis_healthy = False
     if redis_client:
         try:
             await redis_client.ping()
-            redis_healthy = True
             comps["redis"] = {"status": "Healthy"}
         except Exception:
             comps["redis"] = {"status": "Down"}

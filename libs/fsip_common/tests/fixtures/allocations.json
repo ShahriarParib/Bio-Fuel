@@ -1,0 +1,1 @@
+[{"id":1,"idempotency_key":"fx-1","source_depot_id":"depot-gazipur","destination_station_id":"station-mirpur","route_id":"route-gazipur-mirpur","fuel_type":"DIESEL","quantity":3000.0,"created_tick":0,"departure_tick":0,"expected_arrival_tick":2,"actual_arrival_tick":2,"status":"ARRIVED","failure_reason":null}]

@@ -4,9 +4,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import redis.asyncio as aioredis
 from fsip_common.logging import get_logger
 from prometheus_client import Counter
-import redis.asyncio as aioredis
 
 from .store import WorldState
 

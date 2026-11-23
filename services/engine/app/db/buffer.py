@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from collections.abc import Awaitable, Callable
-from typing import Any
 
 from fsip_common.logging import get_logger
 from prometheus_client import Counter, Gauge
@@ -63,7 +62,7 @@ class WriteBuffer:
                     # Wait for items or timeout
                     try:
                         await asyncio.wait_for(self._notify_event.wait(), timeout=self.flush_interval_sec)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         pass
                     self._notify_event.clear()
 
@@ -79,7 +78,7 @@ class WriteBuffer:
                 # Execute batch in a single transaction
                 try:
                     async with self.sessionmaker() as session:
-                        for kind, fn in batch:
+                        for _kind, fn in batch:
                             await fn(session)
                     consecutive_errors = 0
                 except Exception as db_err:

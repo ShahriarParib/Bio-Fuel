@@ -18,8 +18,8 @@ from fsip_common.models import (
     SupplyArrival,
     world_issues,
 )
-from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 from prometheus_client import Counter
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 from .errors import SimInvalidPayload
 

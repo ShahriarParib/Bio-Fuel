@@ -5,11 +5,22 @@ import json
 from pathlib import Path
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
-
-from fsip_common.models import (Allocation, DemandObservation, Depot, Health, Instance, Region, Route, SimEvent,
-                                SimMetrics, Station, SupplyArrival, world_issues)
+from fsip_common.models import (
+    Allocation,
+    DemandObservation,
+    Depot,
+    Health,
+    Instance,
+    Region,
+    Route,
+    SimEvent,
+    SimMetrics,
+    Station,
+    SupplyArrival,
+    world_issues,
+)
 from fsip_common.timeutil import expected_arrival_tick, format_sim_clock, parse_sim_time
+from pydantic import TypeAdapter, ValidationError
 
 FX = Path(__file__).parent / "fixtures"
 

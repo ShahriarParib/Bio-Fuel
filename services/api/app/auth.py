@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from fastapi import Depends, Header, HTTPException
+
 from .config import ApiSettings, get_settings
 
 

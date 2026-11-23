@@ -1,12 +1,12 @@
 """Async repository functions for database operations."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fsip_common.logging import get_logger
 from fsip_common.models import DemandObservation
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,7 +26,7 @@ log = get_logger()
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 async def create_sim_run(
@@ -48,6 +48,46 @@ async def create_sim_run(
     await session.commit()
     await session.refresh(run)
     return run
+
+
+async def resume_or_create_sim_run(
+    session: AsyncSession,
+    scenario_id: str,
+    seed: int,
+    tick_minutes: int,
+    tick: int,
+    previous_run_id: int | None = None,
+    is_reset: bool = False,
+) -> tuple[SimRun, bool]:
+    """Return (run, resumed).
+
+    After an engine restart the simulator world is unchanged, so we resume the latest open run of the same
+    scenario/seed whose last persisted tick is not ahead of the simulator. This keeps decision ids and
+    idempotency keys (`fsip-{run}-{decision}-{line}`) unique across restarts. On a simulator reset the previous
+    run is closed and a new one is created.
+    """
+    if is_reset and previous_run_id is not None:
+        last = await session.scalar(
+            select(func.max(WorldSnapshot.tick)).where(WorldSnapshot.sim_run_id == previous_run_id)
+        )
+        await close_sim_run(session, previous_run_id, int(last or 0))
+    else:
+        candidate = await session.scalar(
+            select(SimRun)
+            .where(SimRun.ended_at.is_(None), SimRun.scenario_id == scenario_id, SimRun.seed == seed)
+            .order_by(SimRun.id.desc())
+            .limit(1)
+        )
+        if candidate is not None:
+            last = await session.scalar(
+                select(func.max(WorldSnapshot.tick)).where(WorldSnapshot.sim_run_id == candidate.id)
+            )
+            if last is None or int(last) <= tick:
+                return candidate, True
+            # simulator went backwards while we were down: that run is over
+            await close_sim_run(session, candidate.id, int(last))
+    run = await create_sim_run(session, scenario_id=scenario_id, seed=seed, tick_minutes=tick_minutes, first_tick=tick)
+    return run, False
 
 
 async def close_sim_run(session: AsyncSession, run_id: int, last_tick: int) -> None:

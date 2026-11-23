@@ -1,11 +1,8 @@
 """Tests for operator state API and node retrieval."""
 from __future__ import annotations
 
-import json
-from unittest.mock import AsyncMock
-
-from fastapi.testclient import TestClient
 from app.main import app
+from fastapi.testclient import TestClient
 
 
 def test_api_state_returns_valid_json():

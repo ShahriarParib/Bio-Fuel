@@ -1,0 +1,1 @@
+[{"id":1,"type":"demand_spike","start_tick":0,"end_tick":8,"status":"ACTIVE","parameters":{"region_ids":["region-dhaka"],"multiplier":1.8}}]

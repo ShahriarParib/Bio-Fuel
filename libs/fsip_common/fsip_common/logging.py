@@ -15,6 +15,9 @@ import structlog
 def configure_logging(service: str, level: str | None = None) -> None:
     lvl = getattr(logging, (level or os.getenv("LOG_LEVEL", "INFO")).upper(), logging.INFO)
     logging.basicConfig(format="%(message)s", stream=sys.stdout, level=lvl)
+    # one line per HTTP call to the simulator every second drowns the real events; keep only their warnings
+    for noisy in ("httpx", "httpcore", "uvicorn.access"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,

@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 import respx
-from app.sim.circuit import CircuitBreaker, CircuitOpenError
+from app.sim.circuit import CircuitBreaker
 from app.sim.client import SimClient, SimResult
 from app.sim.errors import (
     SimDomainError,
@@ -18,10 +18,9 @@ from app.sim.errors import (
     SimValidationError,
     parse_error,
 )
-from app.sim.validation import validate_resource
 from app.state.store import WorldState
 from app.state.sync import SyncLoop
-from fsip_common.models import DemandObservation, Instance
+from fsip_common.models import DemandObservation
 
 
 # --- 1. CircuitBreaker Tests ---
@@ -140,7 +139,7 @@ async def test_sim_client_stale_header_detection():
 # --- 4. WorldState Store Tests ---
 def test_world_state_ingest_demand():
     store = WorldState()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     obs1 = DemandObservation(
         id=1,
