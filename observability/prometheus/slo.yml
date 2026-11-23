@@ -1,4 +1,4 @@
-# F-SLO (12): four SLOs incl. a DOMAIN SLO, with multi-window burn-rate alerts (Google SRE workbook pattern, scaled to
+# Four SLOs incl. a DOMAIN SLO, with multi-window burn-rate alerts (Google SRE workbook pattern, scaled to
 # a 1 h budget window for hackathon timescales: fast burn 14.4x over 5m AND 1h, slow burn 6x over 30m AND 6h).
 #
 #   SLO                         SLI                                                   target

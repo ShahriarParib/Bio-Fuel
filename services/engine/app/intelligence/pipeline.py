@@ -275,7 +275,7 @@ class IntelligencePipeline:
                                          "The payload was rejected and quarantined; the last good copy is used.",
                                          "system", "simulator", None, {"reason": reason})
 
-    # ------------------------------------------------------------------ cover (F-COVER)
+    # ------------------------------------------------------------------ cover (days / hours of fuel left)
     def _cover(self, state: PlanningState, risks) -> dict[str, Any]:
         network: dict[str, Any] = {}
         horizon = 96

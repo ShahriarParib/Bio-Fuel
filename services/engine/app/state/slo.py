@@ -1,4 +1,4 @@
-"""Domain SLO + error-budget policy (12 F-SLO).
+"""Domain SLO + error-budget policy.
 
 SLO: fuel service level = served / (served + unmet) litres over the last 96 ticks (one simulated day) >= 99 %.
 Policy (SRE error-budget policy: freeze risky changes, keep fixing): when less than 25 % of the budget is left,

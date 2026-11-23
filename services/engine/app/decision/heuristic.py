@@ -1,4 +1,4 @@
-"""Greedy heuristic policy (05 §4.2): deterministic, fast, and the fallback for the optimizer.
+"""Greedy heuristic policy: deterministic, fast, and the fallback for the optimizer.
 
 Benchmark (greedy, real simulator): service level 1.000 on the 3-day baseline, 0.992 in the combined crisis.
 This version adds the in-flight-aware overflow guard and the departure-time disruption guard from constraints.py.

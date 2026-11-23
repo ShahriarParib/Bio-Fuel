@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fails if any metric the dashboards, alerts and SLOs depend on is missing from a service's /metrics (phase 11.6).
+# Fails if any metric the dashboards, alerts and SLOs depend on is missing from a service's /metrics.
 set -u
 ENGINE=${ENGINE:-http://localhost:8100}
 API=${API_URL:-http://localhost:18080}

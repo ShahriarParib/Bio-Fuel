@@ -1,4 +1,4 @@
-"""Submit decision lines to the simulator and map every outcome to a line status (05 §4.5, 02 §3).
+"""Submit decision lines to the simulator and map every outcome to a line status.
 
 The engine is the only writer to the simulator. Retries reuse the same idempotency key, so a timeout followed by a
 retry can never create a second shipment.

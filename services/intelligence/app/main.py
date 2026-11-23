@@ -1,4 +1,4 @@
-"""Intelligence service: demand forecasting (21 §4).
+"""Intelligence service: demand forecasting.
 
 The champion model is the structural seasonal model in `fsip_common.forecast_seasonal` (the engine runs the same code
 as its fallback, so "prediction service down" degrades capacity, not correctness). `INTEL_FORCE_GARBAGE=true` makes the
