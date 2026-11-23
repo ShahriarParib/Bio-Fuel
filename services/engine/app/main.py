@@ -12,11 +12,14 @@ from prometheus_client import Counter, Gauge, make_asgi_app
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .alerts.manager import AlertManager
 from .config import EngineSettings, get_settings
 from .db import repo
 from .db.buffer import WriteBuffer
 from .db.session import get_sessionmaker, init_db
 from .decision.engine import DecisionEngine, DecisionError
+from .intelligence.client import ForecastService
+from .intelligence.pipeline import IntelligencePipeline
 from .sim.circuit import CircuitBreaker
 from .sim.client import SimClient
 from .sim.sse import SSEListener
@@ -182,14 +185,22 @@ async def lifespan(app: FastAPI):
         hooks.append(_hook_persist_db)
 
     # Hook 0 (runs first, so the published state already contains the new recommendations): decide → act
+    forecast_service = ForecastService(s.intelligence_url, timeout=s.intelligence_timeout_sec,
+                                       horizon=s.planning_horizon_ticks)
     decision_engine = DecisionEngine(
         store, sim_client, publisher, get_sessionmaker,
         ttl_ticks=s.decision_ttl_ticks, interval_ticks=s.engine_decision_interval_ticks,
         auto_max_line=s.auto_approve_max_liters, auto_min_confidence=s.auto_approve_min_confidence,
-        reserve_fraction=s.depot_reserve_fraction,
+        reserve_fraction=s.depot_reserve_fraction, forecast_service=forecast_service,
     )
+    alert_manager = AlertManager(publisher, get_sessionmaker)
+    pipeline = IntelligencePipeline(forecast_service, alert_manager, publisher, decision_engine.planning_state)
+    # order: observe/predict/detect → decide/act → publish → persist
     hooks.insert(0, decision_engine.on_cycle)
+    hooks.insert(0, pipeline.on_cycle)
     app.state.decision_engine = decision_engine
+    app.state.alerts = alert_manager
+    app.state.forecast = forecast_service
 
     # 6. Initialize Synchronization Loop and SSE Listener
     sync_loop = SyncLoop(
@@ -241,6 +252,7 @@ async def lifespan(app: FastAPI):
     await asyncio.gather(*tasks, return_exceptions=True)
     await sim_client.close()
     await publisher.close()
+    await forecast_service.close()
     log.info("engine.stop")
 
 
@@ -393,3 +405,12 @@ async def set_mode(body: ModeBody):
 @app.post("/internal/policy", dependencies=[Depends(require_internal)])
 async def set_policy(body: PolicyBody):
     return await _engine().set_policy(body.actor, body.policy)
+
+
+@app.post("/internal/alerts/{alert_id}/ack", dependencies=[Depends(require_internal)])
+async def ack_alert(alert_id: int, body: ActorBody):
+    a = app.state.alerts.acknowledge(alert_id, body.actor)
+    if a is None:
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "no open alert with this id"})
+    await app.state.publisher.set_json("fsip:alerts", app.state.alerts.document())
+    return a

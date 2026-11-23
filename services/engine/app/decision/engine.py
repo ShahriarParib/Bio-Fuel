@@ -21,6 +21,7 @@ from fsip_common.logging import get_logger
 from prometheus_client import Counter, Gauge, Histogram
 
 from ..db import repo
+from ..risk.stockout import shipment_impact
 from ..sim.client import SimClient
 from ..state.publisher import Publisher
 from ..state.store import WorldState
@@ -57,7 +58,7 @@ def _now_iso() -> str:
 class DecisionEngine:
     def __init__(self, store: WorldState, client: SimClient, publisher: Publisher, sessionmaker_fn,
                  *, ttl_ticks: int = 8, interval_ticks: int = 1, auto_max_line: float = 7000.0,
-                 auto_min_confidence: float = 0.7, reserve_fraction: float = 0.0) -> None:
+                 auto_min_confidence: float = 0.7, reserve_fraction: float = 0.0, forecast_service=None) -> None:
         self.store = store
         self.client = client
         self.publisher = publisher
@@ -67,6 +68,7 @@ class DecisionEngine:
         self.auto_max_line = auto_max_line
         self.auto_min_confidence = auto_min_confidence
         self.reserve_fraction = reserve_fraction
+        self.forecast_service = forecast_service
         self.decisions: OrderedDict[int, dict[str, Any]] = OrderedDict()  # recent, newest last
         self.last_planned_tick = -1
         self.last_cycle_tick = -1
@@ -82,9 +84,15 @@ class DecisionEngine:
             raise DecisionError(503, "NO_STATE", "no simulator state yet")
         routes = {r.id: r for r in snap.routes}
         stations = {s.id: s for s in snap.stations}
-        history = {k: [o.demand_liters for o in v] for k, v in self.store.demand.items()}
-        p50, p10 = naive_forecast(history, stations, HORIZON)
         tick = snap.instance.tick
+        fc = self.forecast_service.last if self.forecast_service is not None else None
+        if fc is not None and fc.tick == tick:
+            p50, p10, model, fallback = fc.p50, fc.p10, fc.model, fc.source == "fallback"
+        else:
+            history = {k: [o.demand_liters for o in v] for k, v in self.store.demand.items()}
+            p50, p10 = naive_forecast(history, stations, HORIZON)
+            model, fallback = "naive", True
+        risk = {k: (v["level"], v["hours_to_stockout"]) for k, v in self.store.risk.items()}
         dispatched: dict[str, float] = {}
         for a in snap.allocations:
             if a.created_tick == tick and a.status == "PENDING":
@@ -95,7 +103,8 @@ class DecisionEngine:
             events=list(snap.events), supply=list(snap.supply_arrivals),
             inflight=inflight_from_allocations(snap.allocations, routes, tick),
             demand_p50=p50, demand_p10=p10, dispatched_this_tick=dispatched,
-            stale=self.store.stale, degraded=self.store.degraded, forecast_model="naive",
+            stale=self.store.stale, degraded=self.store.degraded, forecast_model=model,
+            forecast_fallback=fallback, risk=risk,
         )
 
     # ------------------------------------------------------------------ cycle hook
@@ -131,7 +140,8 @@ class DecisionEngine:
         lines = [ln for ln in plan.lines if (ln.destination_station_id, ln.fuel_type) not in covered]
         if not lines:
             return None
-        confidence = 0.5 if (state.stale or state.degraded) else 0.9
+        # 05 §4.4 simplified: fresh data + primary model 0.9; fallback forecast 0.6 (< autopilot gate → human review)
+        confidence = 0.5 if (state.stale or state.degraded) else (0.6 if state.forecast_fallback else 0.9)
         decision = await self._record(state, lines, plan, policy_used, fallback_reason, confidence, trigger)
         if self._autopilot_gate(decision, state):
             await self._execute(decision, actor="autopilot")
@@ -153,6 +163,7 @@ class DecisionEngine:
         critical = any(ln.critical for ln in lines)
         drivers = [n.reason for n in plan.needs if (n.key[0], n.key[1]) in
                    {(ln.destination_station_id, ln.fuel_type) for ln in lines}]
+        impact = self._impact(state, lines)
         decision: dict[str, Any] = {
             "sim_run_id": self.store.sim_run_id, "tick": state.tick, "policy": policy,
             "policy_version": plan.policy_version, "trigger": "alert" if critical else trigger,
@@ -160,7 +171,7 @@ class DecisionEngine:
             "degraded": state.stale or state.degraded, "fallback_reason": fallback_reason,
             "expires_at_tick": state.tick + self.ttl_ticks, "total_liters": round(total, 1),
             "summary": f"Ship {summary}", "requires_second_approval": False, "approvals": [],
-            "impact": None, "narrative": None, "narrative_source": "template",
+            "impact": impact, "narrative": None, "narrative_source": "template",
             "explanation": {
                 "headline": drivers[0] if drivers else "Keep stations above their reorder level",
                 "why_at_risk": [{"text": d} for d in drivers],
@@ -168,7 +179,10 @@ class DecisionEngine:
                                 "projected inventory at arrival (in-flight included) ≤ 98% capacity",
                                 "per-depot dispatch cap shared by all fuels"],
                 "unserved": plan.skipped,
-                "confidence": confidence, "policy": plan.policy_version, "forecast_model": state.forecast_model,
+                "confidence": confidence,
+                "confidence_factors": {"fresh_data": 0.0 if (state.stale or state.degraded) else 1.0,
+                                       "primary_forecast": 0.0 if state.forecast_fallback else 1.0},
+                "policy": plan.policy_version, "forecast_model": state.forecast_model,
                 "degraded": state.stale or state.degraded,
             },
             "created_at": _now_iso(),
@@ -201,6 +215,35 @@ class DecisionEngine:
                  policy=plan.policy_version, mode=self.store.operating_mode)
         await self.publisher.event("decision.created", self._summary(decision))
         return decision
+
+    def _impact(self, state: PlanningState, lines: list[Line]) -> dict[str, Any]:
+        """Per target: the brief §9 alert card numbers, with the 12 h stockout probability before → after."""
+        fc = self.forecast_service.last if self.forecast_service is not None else None
+        p90 = fc.p90 if fc is not None else {}
+        targets: dict[tuple[str, str], dict[str, Any]] = {}
+        for ln in lines:
+            key = (ln.destination_station_id, ln.fuel_type)
+            t = targets.setdefault(key, {"lines": [], "qty": 0.0})
+            t["lines"].append(ln)
+            t["qty"] += ln.quantity
+        out = []
+        for key, t in targets.items():
+            r = self.store.risk.get(key, {})
+            arrival = state.tick + min(state.routes[ln.route_id].transit_ticks for ln in t["lines"])
+            imp = shipment_impact(state, key, arrival, t["qty"], self.store.sim_run_id, p90)
+            out.append({
+                "station_id": key[0], "station_name": state.stations[key[0]].name, "fuel_type": key[1],
+                "projected_stockout_hours": r.get("hours_to_stockout"),
+                "current_inventory": r.get("inventory", float(state.stations[key[0]].inventory[key[1]])),
+                "expected_demand_12h": r.get("expected_demand_12h"),
+                "recommended": [{"liters": ln.quantity, "from": ln.source_depot_id, "route_id": ln.route_id}
+                                for ln in t["lines"]],
+                **imp, "arrival_tick": arrival,
+            })
+        network = {"unmet_before": sum(t["unmet_before"] for t in out),
+                   "unmet_after": sum(t["unmet_after"] for t in out)}
+        return {"targets": out, "network": network, "horizon_hours": 12,
+                "method": "Monte Carlo, 300 demand paths, risk counted from the arrival tick"}
 
     async def _db(self, fn, *args, **kwargs) -> None:
         try:

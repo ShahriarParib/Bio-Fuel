@@ -18,7 +18,7 @@ from prometheus_client import Counter, Histogram, make_asgi_app
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from .config import get_settings
-from .routers import decisions, nodes, state
+from .routers import alerts, decisions, nodes, state
 
 log = get_logger()
 settings = get_settings()
@@ -102,6 +102,7 @@ app.mount("/metrics", make_asgi_app())
 app.include_router(state.router)
 app.include_router(nodes.router)
 app.include_router(decisions.router)
+app.include_router(alerts.router)
 
 
 @app.middleware("http")

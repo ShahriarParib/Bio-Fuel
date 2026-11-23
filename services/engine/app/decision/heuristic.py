@@ -41,7 +41,9 @@ def lead_ticks(state: PlanningState, station_id: str) -> int | None:
 
 
 def risk_level(state: PlanningState, key: Key) -> tuple[str, float | None]:
-    """Deterministic risk from the p50 projection (B3 replaces it with Monte Carlo probability)."""
+    """Monte Carlo risk when the pipeline provided it; otherwise deterministic risk from the p50 projection."""
+    if key in state.risk:
+        return state.risk[key]
     hts = hours_to_stockout(state, key, horizon=96)
     if hts is None:
         return "LOW", None

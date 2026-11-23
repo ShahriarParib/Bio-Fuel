@@ -37,6 +37,7 @@ class WorldState:
         default_factory=lambda: {"DIESEL": False, "PETROL": False, "OCTANE": False}
     )
     risk: dict[tuple[str, str], Any] = field(default_factory=dict)
+    extras: dict[str, Any] = field(default_factory=dict)  # risk list, cover, forecast status (intelligence pipeline)
     pending_recommendations: list[dict[str, Any]] = field(default_factory=list)
     bottleneck: dict[str, Any] | None = None
     alerts_open_count: dict[str, int] = field(
@@ -245,6 +246,9 @@ class WorldState:
             "alerts_open_count": self.alerts_open_count,
             "pending_recommendations": self.pending_recommendations,
             "bottleneck": self.bottleneck,
+            "risk": self.extras.get("risk", []),
+            "cover": self.extras.get("cover"),
+            "forecast": self.extras.get("forecast"),
             "system": {
                 "simulator": "UP",
                 "sse": "CONNECTED",
@@ -252,6 +256,6 @@ class WorldState:
                 "db": "UP",
                 "redis": "UP",
                 "breakers": {"simulator": "CLOSED"},
-                "forecaster": "seasonal@builtin",
+                "forecaster": (self.extras.get("forecast") or {}).get("model", "seasonal@builtin"),
             },
         }

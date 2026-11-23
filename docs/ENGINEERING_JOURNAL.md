@@ -138,6 +138,46 @@ Nothing here describes real fuel infrastructure.
 - **Demo line:** "Cut a route one tick before departure: the platform never ships into it, because that fuel would
   be destroyed. It reroutes across regions instead."
 
+### B3: Predict & detect (2026-11-24, after midnight)
+- **Goal:** see shortages coming early enough to act, know how sure we are, and keep predicting when the prediction
+  service is gone.
+- **What we built:**
+  - `libs/fsip_common/forecast_seasonal.py`: a structural forecaster. Demand here is an hour-of-day profile × a live
+    demand multiplier × bounded noise, so we model exactly that and learn every number from data (tests check the
+    model *recovers* the day/night factors instead of hard-coding them).
+  - `services/engine/app/intelligence/series.py`: the multiplier at every past tick is reconstructed exactly from the
+    simulator's event list (start, end, factor), so history is normalised and a past spike does not inflate the
+    profile; scheduled spikes enter the forecast before they start, active ones leave it when they end.
+  - Intelligence service `POST /forecast` (validated input and output) + engine client with a 1.5 s timeout and a
+    circuit breaker. On any error, timeout or invalid output the **same model runs inside the engine**; decision
+    confidence drops to 0.6, below the autopilot gate, so a human reviews (brief §12: "model unavailable → fallback",
+    "low confidence → human review"). `INTEL_FORCE_GARBAGE=true` is a drill that returns wrong numbers.
+  - `risk/stockout.py`: Monte Carlo (300 correlated demand paths per station and fuel) with our in-flight arrivals and
+    outage windows → probability of running dry in 12 h and before a truck can arrive, time to stockout, risk level.
+    Recommendations carry the brief §9 card: inventory, expected demand, recommended litres, and *stockout risk from
+    the arrival tick, without → with the shipment* (common random numbers, so the difference is the shipment only).
+  - `alerts/manager.py` + `intelligence/pipeline.py`: deduplicated alerts that auto-resolve after 2 clear cycles.
+    Detectors: stockout risk / occurred, depot overflow (supply that will not fit), supply delay and shortfall, route
+    disruptions and outages *before they start* (single-route stations named), demand anomalies split into
+    **explained** (visible multiplier / event) and **unexplained** (CUSUM on forecast residuals), data quality.
+  - Network fuel cover (days of forecast demand per fuel) and hours of cover per station.
+  - api: `/api/alerts`, `/api/alerts/{id}/ack`, `/api/risk`, `/api/cover`.
+- **Problems hit → fix:** the first live run raised 7 "unexplained" alarms in stations the spike never touched: during
+  the first simulated day the profile had not seen every hour, so model error looked like anomalies. Unseen hours now
+  continue the nearest earlier hour, and the unexplained detector waits for one day of history. The impact first
+  showed "100% → 100%" for a station that was already dry; it is now measured from the arrival tick. The 80% band
+  covered 64% of actuals (in-sample residuals are optimistic); calibrated to 79%.
+- **Evidence:** first stockout warning **40 ticks (10 h)** before the first real stockout in a do-nothing run (Tongi
+  diesel, tick 65); forecast WAPE **5.8%** after two days against an estimated noise floor of ≈4.5-5.8% (a perfect model
+  still has that error); band coverage **79%** for a target of 80%; a Dhaka demand spike produced "demand ×1.80
+  (explained by event #1)" on the next tick; intelligence container stopped → fallback, confidence 0.6; restarted →
+  back to the service. Example card: Tongi diesel, recommended 12,000 L, stockout risk **100% → 0%**, expected unmet
+  **7,375 → 458 L**. Autopilot regression still 1.0 service level, 0 failures, 0 overflow. 78 unit tests.
+- **Judging criterion:** Intelligence & Decision Quality, Resilience, Observability (forecast WAPE, coverage, fallback
+  activations are Prometheus metrics).
+- **Demo line:** "Our forecast error sits at the noise floor of the simulator itself, and when the prediction service
+  dies the same model keeps running inside the engine, but the autopilot hands control back to a human."
+
 <!-- New entries go here, one per block (B1-B8, E1-E9). Copy the template below. -->
 
 ## 5. What we discovered about the simulator

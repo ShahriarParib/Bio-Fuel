@@ -141,3 +141,13 @@ def test_executor_maps_simulator_outcomes():
     assert decision_status_after_execution(["SUBMITTED", "SUBMITTED"]) == "EXECUTED"
     assert decision_status_after_execution(["SUBMITTED", "DEFERRED"]) == "PARTIAL"
     assert decision_status_after_execution(["REJECTED_BY_SIM"]) == "FAILED"
+
+
+def test_shipment_impact_is_measured_from_arrival_and_drops_sharply():
+    from app.risk.stockout import shipment_impact
+
+    s = world(inventories={"station-mirpur": {"DIESEL": 300}}, demand=100)
+    imp = shipment_impact(s, ("station-mirpur", "DIESEL"), arrival_tick=2, qty=6000, run_id=1, p90={})
+    assert imp["stockout_prob_before"] > 0.9
+    assert imp["stockout_prob_after"] < 0.2
+    assert imp["unmet_after"] < imp["unmet_before"]

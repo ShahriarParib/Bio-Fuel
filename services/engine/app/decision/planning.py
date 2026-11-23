@@ -43,6 +43,9 @@ class PlanningState:
     stale: bool = False
     degraded: bool = False
     forecast_model: str = "naive"
+    forecast_fallback: bool = False
+    # Monte Carlo risk from the intelligence pipeline: key -> (level, hours_to_stockout); empty = deterministic risk
+    risk: dict[Key, tuple[str, float | None]] = field(default_factory=dict)
 
     @property
     def ticks_per_hour(self) -> float:
