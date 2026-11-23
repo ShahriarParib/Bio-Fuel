@@ -57,5 +57,4 @@ did about it.
 
 ## Secrets
 
-`.env` only (never committed). Operator, supervisor and internal tokens, the Grafana admin password and an optional
-`ANTHROPIC_API_KEY`. Change every `change-me-*` value before exposing the console beyond localhost.
+`.env` only (never committed). Operator, supervisor and internal tokens, and the Grafana admin password. Change every `change-me-*` value before exposing the console beyond localhost.
