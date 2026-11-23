@@ -23,6 +23,8 @@ class EngineSettings(BaseServiceSettings):
     safety_noise: float = 0.15
     safety_weight: float = 2.0
     scarcity_policy: str = "history_based"
+    safe_hold_after_sec: float = 60.0         # simulator down this long → SAFE_HOLD
+    breakglass_dir: str = "/data/breakglass"
 
 
 @lru_cache

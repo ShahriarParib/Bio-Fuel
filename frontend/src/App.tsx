@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Link, NavLink, Navigate, Route, Routes } from "react-router-dom";
 import clsx from "clsx";
-import { Activity, Bell, Gauge, HeartPulse, History, Inbox, KeyRound, ShieldAlert } from "lucide-react";
+import { Activity, Bell, Gauge, HeartPulse, History, Inbox, KeyRound, ShieldAlert, SlidersHorizontal } from "lucide-react";
 import { loadToken, saveToken, useSetMode, useWorldState } from "@/api/hooks";
 import { getToken } from "@/api/client";
 import Alerts from "@/pages/Alerts";
+import Control from "@/pages/Control";
 import Decisions from "@/pages/Decisions";
 import Overview from "@/pages/Overview";
 import Recommendations from "@/pages/Recommendations";
@@ -20,6 +21,7 @@ const NAV = [
   { to: "/alerts", label: "Alerts", Icon: Bell },
   { to: "/decisions", label: "Decisions", Icon: History },
   { to: "/health", label: "System Health", Icon: HeartPulse },
+  { to: "/control", label: "Control (demo)", Icon: SlidersHorizontal },
 ];
 
 function TokenBox() {
@@ -79,15 +81,28 @@ function Header() {
 }
 
 function DegradedBanner() {
-  const { data: s } = useWorldState();
+  const { data: s, isError } = useWorldState();
+  if (isError && !s)
+    return (
+      <div className="border-b border-state-down/40 bg-state-down/10 px-4 py-1.5 text-xs text-state-down" data-testid="degraded-banner">
+        Console API unreachable. Static dispatch plan: <a className="underline" href="/breakglass/latest.html">break-glass plan</a>
+      </div>
+    );
   if (!s) return null;
-  const reasons = [...s.degraded_reasons];
-  if (s.stale) reasons.unshift("simulator data is STALE: autopilot paused, approvals blocked");
-  if (s.forecast?.source === "fallback") reasons.push(`prediction service down: fallback model active (${s.forecast.reason ?? ""})`);
+  const sim = s.system?.components?.simulator;
+  const reasons: string[] = [];
+  if (s.engine_mode === "SAFE_HOLD")
+    reasons.push(`SAFE HOLD: simulator down ${Math.round(s.system?.sim_down_for_s ?? 0)} s, no shipments are sent`);
+  if (sim?.status === "DOWN")
+    reasons.push(`Simulator unreachable: showing data from tick ${s.tick} (${Math.round(s.age_seconds)} s old)`);
+  else if (s.stale) reasons.push("STALE DATA: autopilot paused, approvals blocked");
+  for (const r of s.system?.mode_reasons ?? []) if (!r.startsWith("simulator down") && !(sim?.status === "DOWN" && r.startsWith("simulator:"))) reasons.push(r);
+  if (!s.system && s.forecast?.source === "fallback") reasons.push(`prediction service down: fallback model active (${s.forecast.reason ?? ""})`);
   if (!reasons.length) return null;
   return (
-    <div className="border-b border-risk-high/40 bg-risk-high/10 px-4 py-1.5 text-xs text-risk-high" data-testid="degraded-banner">
-      DEGRADED · {reasons.join(" · ")}
+    <div className="flex flex-wrap items-center gap-2 border-b border-risk-high/40 bg-risk-high/10 px-4 py-1.5 text-xs text-risk-high" data-testid="degraded-banner">
+      <b>{s.engine_mode}</b> · {reasons.join(" · ")}
+      <a className="ml-auto underline" href="/breakglass/latest.html" target="_blank" rel="noreferrer">break-glass plan</a>
     </div>
   );
 }
@@ -128,6 +143,7 @@ export default function App() {
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/decisions" element={<Decisions />} />
             <Route path="/health" element={<SystemHealth />} />
+            <Route path="/control" element={<Control />} />
             <Route path="*" element={<Navigate to="/overview" replace />} />
           </Routes>
         </main>

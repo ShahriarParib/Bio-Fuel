@@ -12,7 +12,7 @@ COPY services/engine/app /app/app
 ARG APP_VERSION=dev
 ARG GIT_SHA=unknown
 ENV APP_VERSION=${APP_VERSION} GIT_SHA=${GIT_SHA}
-RUN useradd -u 10001 -m app && mkdir -p /data && chown app /data
+RUN useradd -u 10001 -m app && mkdir -p /data/breakglass && chown -R app /data
 USER app
 EXPOSE 8100
 HEALTHCHECK --interval=10s --timeout=3s --retries=6 CMD python -c "import urllib.request;urllib.request.urlopen('http://localhost:8100/health/live',timeout=2)"

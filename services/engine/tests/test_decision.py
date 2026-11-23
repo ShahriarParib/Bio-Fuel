@@ -89,6 +89,19 @@ def test_inflight_fuel_counts_against_room_at_arrival():
     assert "STATION_CAPACITY_NOW" not in rules  # the simulator itself would have accepted it: the trap
 
 
+def test_closed_station_draws_no_fuel_so_room_at_arrival_is_not_overestimated():
+    """Simulator: during station_outage served = 0 and inventory stays flat. Regression for the 80 L crisis overflow."""
+    sid, key = "station-tongi", ("station-tongi", "DIESEL")
+    outage = SimEvent(id=9, type="station_outage", start_tick=11, end_tick=15, status="SCHEDULED",
+                      parameters={"station_ids": [sid]})
+    s = world(tick=10, events=[outage])
+    assert s.demand(key, 0) > 0 and s.demand(key, 1) == 0.0 and s.demand(key, 4) == 0.0 and s.demand(key, 5) > 0
+    assert s.demand(("station-mirpur", "DIESEL"), 2) > 0          # other stations unaffected
+    open_world = world(tick=10)
+    # 3 ticks of transit: with the outage only 1 tick of demand is drawn before arrival, so there is less room
+    assert inventory_before_arrival(s, key, 3) > inventory_before_arrival(open_world, key, 3)
+
+
 def test_projection_applies_arrivals_and_clamps_at_zero():
     s = world(inventories={"station-tongi": {"DIESEL": 100}}, inflight=[Inflight("station-tongi", "DIESEL", 3, 1000)])
     path = projected_inventory(s, ("station-tongi", "DIESEL"), 5)

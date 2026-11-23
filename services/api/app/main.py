@@ -1,12 +1,10 @@
 """Operator API service: provides REST endpoints and SSE stream to frontend."""
 from __future__ import annotations
 
-import asyncio
 import os
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from typing import Any
 
 import httpx
 import redis.asyncio as aioredis
@@ -14,11 +12,12 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fsip_common.logging import configure_logging, get_logger
+from fsip_common.redis_guard import GuardedRedis
 from prometheus_client import Counter, Histogram, make_asgi_app
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from .config import get_settings
-from .routers import alerts, decisions, nodes, state
+from .routers import alerts, decisions, nodes, state, system
 
 log = get_logger()
 settings = get_settings()
@@ -49,17 +48,18 @@ async def lifespan(app: FastAPI):
 
     # 1. Connect to Redis
     try:
-        app.state.redis = aioredis.from_url(
+        # fail fast while Redis is down (see fsip_common.redis_guard: a dead cache must not starve DNS for the rest)
+        app.state.redis = GuardedRedis(aioredis.from_url(
             settings.redis_url,
             socket_timeout=1.5,
             socket_connect_timeout=1.5,
             decode_responses=True,
-        )
+        ))
         await app.state.redis.ping()
         log.info("api.redis_connected")
     except Exception as err:
+        # keep the guarded client: it probes again every 5 s, so the api heals when Redis comes back
         log.warning("api.redis_connect_failed", error=str(err))
-        app.state.redis = None
 
     # 2. Database async engine & sessionmaker (soft initialization)
     try:
@@ -103,6 +103,7 @@ app.include_router(state.router)
 app.include_router(nodes.router)
 app.include_router(decisions.router)
 app.include_router(alerts.router)
+app.include_router(system.router)
 
 
 @app.middleware("http")
@@ -223,77 +224,13 @@ async def ping():
     return {"pong": True, "version": os.getenv("APP_VERSION", "dev")}
 
 
-async def _probe_component(name: str, url: str) -> tuple[str, dict[str, Any]]:
-    t0 = time.perf_counter()
-    try:
-        r = await app.state.http.get(url)
-        ok = r.status_code == 200
-        latency = round((time.perf_counter() - t0) * 1000, 1)
-        data = r.json() if ok else {}
-        return name, {
-            "status": "Healthy" if ok else "Degraded",
-            "latency_ms": latency,
-            "details": data,
-        }
-    except Exception as e:
-        return name, {"status": "Down", "error": type(e).__name__}
-
-
-@app.get("/api/system/status")
-async def system_status():
-    """Aggregate health status from all subsystems, redis, and recent metrics."""
-    probes = await asyncio.gather(
-        _probe_component("decision_engine", f"{settings.engine_internal_url}/health/ready"),
-        _probe_component("prediction_service", f"{settings.intelligence_url}/health/ready"),
-        _probe_component("fuel_simulator", f"{settings.sim_base_url}/v1/health"),
-    )
-    comps = dict(probes)
-
-    redis_client = getattr(app.state, "redis", None)
-    if redis_client:
-        try:
-            await redis_client.ping()
-            comps["redis"] = {"status": "Healthy"}
-        except Exception:
-            comps["redis"] = {"status": "Down"}
-    else:
-        comps["redis"] = {"status": "Down"}
-
-    comps["backend_api"] = {"status": "Healthy"}
-    comps["database"] = {
-        "status": "Healthy" if getattr(app.state, "db_sessionmaker", None) else "Degraded"
-    }
-
-    # Compute p95 latency and error rate from rolling window
+def api_window_stats() -> dict[str, float]:
+    """p95 latency and 5xx ratio of the api's own last 500 requests."""
     p95_ms = 0.0
     if _recent_latencies:
-        sorted_lats = sorted(_recent_latencies)
-        p95_idx = int(len(sorted_lats) * 0.95)
-        p95_ms = round(sorted_lats[min(p95_idx, len(sorted_lats) - 1)], 1)
-
+        lat = sorted(_recent_latencies)
+        p95_ms = round(lat[min(int(len(lat) * 0.95), len(lat) - 1)], 1)
     error_rate = 0.0
     if _recent_status_codes:
-        error_count = sum(1 for c in _recent_status_codes if c >= 500)
-        error_rate = round(error_count / len(_recent_status_codes), 3)
-
-    worst = "Healthy"
-    if any(c.get("status") == "Down" for c in comps.values()):
-        worst = "Down" if comps.get("fuel_simulator", {}).get("status") == "Down" else "Degraded"
-    elif any(c.get("status") == "Degraded" for c in comps.values()):
-        worst = "Degraded"
-
-    engine_mode = "NORMAL"
-    if "decision_engine" in comps and "details" in comps["decision_engine"]:
-        engine_mode = comps["decision_engine"]["details"].get("engine_mode", "NORMAL")
-
-    return {
-        "overall": worst,
-        "engine_mode": engine_mode,
-        "components": comps,
-        "versions": {
-            "api": os.getenv("APP_VERSION", "dev"),
-            "git_sha": os.getenv("GIT_SHA", "unknown"),
-        },
-        "p95_latency_ms": p95_ms,
-        "error_rate": error_rate,
-    }
+        error_rate = round(sum(1 for c in _recent_status_codes if c >= 500) / len(_recent_status_codes), 3)
+    return {"p95_ms": p95_ms, "error_rate": error_rate}

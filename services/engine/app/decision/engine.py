@@ -79,6 +79,7 @@ class DecisionEngine:
         self.force_plan = False
         self._local_id = int(time.time())  # only used when the DB is down
         self._lock = asyncio.Lock()
+        self._db_down_until = 0.0
         self._run_id = store.sim_run_id
 
     # ------------------------------------------------------------------ planning view
@@ -208,8 +209,10 @@ class DecisionEngine:
                                                "mode", "confidence", "degraded", "fallback_reason",
                                                "expires_at_tick", "explanation")}
         try:
-            async with self.sessionmaker_fn()() as session:
-                dec_id, ids = await repo.create_decision_with_lines(session, db_fields, line_rows)
+            async def _create():
+                async with self.sessionmaker_fn()() as session:
+                    return await repo.create_decision_with_lines(session, db_fields, line_rows)
+            dec_id, ids = await self._guarded_db(_create)
         except Exception as err:
             self._local_id += 1
             dec_id = 10**9 + self._local_id
@@ -259,10 +262,26 @@ class DecisionEngine:
         return {"targets": out, "network": network, "horizon_hours": 12,
                 "method": "Monte Carlo, 300 demand paths, risk counted from the arrival tick"}
 
+    async def _guarded_db(self, make_coro):
+        """DB call that cannot stall the decision cycle: 2 s timeout, then fail fast for 10 s.
+
+        Found by the F9 drill: with Postgres stopped, each write hung ~8 s on the DNS lookup inside the cycle, so ticks
+        were coalesced and planning slowed although the simulator was fine. Decisions get a local id meanwhile.
+        """
+        if time.monotonic() < self._db_down_until:
+            raise ConnectionError("history DB marked down (recent failure); using a local id")
+        try:
+            return await asyncio.wait_for(make_coro(), timeout=2.0)
+        except Exception:
+            self._db_down_until = time.monotonic() + 10.0
+            raise
+
     async def _db(self, fn, *args, **kwargs) -> None:
         try:
-            async with self.sessionmaker_fn()() as session:
-                await fn(session, *args, **kwargs)
+            async def _write():
+                async with self.sessionmaker_fn()() as session:
+                    await fn(session, *args, **kwargs)
+            await self._guarded_db(_write)
         except Exception as err:
             log.warning("decision.db_write_failed", fn=fn.__name__, error=str(err))
 

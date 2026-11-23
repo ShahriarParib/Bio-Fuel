@@ -3,7 +3,7 @@ COMPOSE := docker compose
 PY := .venv/bin/python
 SERVICES := engine intelligence api
 
-.PHONY: help venv up obs-up down down-v ps logs smoke test test-common lint fixtures fe-test fe-build
+.PHONY: help venv up obs-up chaos-up chaos-down chaos down down-v ps logs smoke test test-common lint fixtures fe-test fe-build
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -19,6 +19,16 @@ up: .env ## build + start core stack
 
 obs-up: .env ## start core + observability (prometheus, grafana)
 	$(COMPOSE) --profile obs up -d --build
+
+chaos-up: .env ## route the engine through the chaos proxy (F6 malformed drill)
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.chaos.yml --profile chaos up -d --build chaos-proxy engine
+
+chaos-down: ## engine back to the direct simulator URL; stop the proxy
+	$(COMPOSE) up -d engine
+	$(COMPOSE) --profile chaos stop chaos-proxy
+
+chaos: ## run every resilience drill → docs/evidence/resilience.md (takes ~15 min)
+	bash scripts/chaos/run_all.sh
 
 down: ## stop stack (keeps data)
 	$(COMPOSE) --profile obs down

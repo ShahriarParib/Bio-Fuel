@@ -19,6 +19,29 @@ from ..sim.validation import ValidatedSnapshot, validate_resource
 log = get_logger()
 
 
+def _field_path(err: Exception) -> str:
+    """'stations.2.inventory.DIESEL: Input should be a valid number' from a pydantic error (first error only)."""
+    errors = getattr(err, "errors", None)
+    if callable(errors):
+        try:
+            first = errors()[0]
+            return f"{'.'.join(str(x) for x in first.get('loc', ()))}: {first.get('msg', '')}"[:300]
+        except Exception:
+            pass
+    cause = getattr(err, "__cause__", None)
+    if cause is not None and cause is not err:
+        return _field_path(cause)
+    return str(err)[:300]
+
+
+def _raw_sample(data: Any) -> str:
+    import json
+    try:
+        return json.dumps(data, default=str)[:4000]
+    except Exception:
+        return repr(data)[:4000]
+
+
 @dataclass
 class WorldState:
     sim_run_id: int = 1
@@ -93,8 +116,13 @@ class WorldState:
                     # Clear previous degraded reasons for this resource (both transport and validation)
                     self.degraded_reasons.discard(f"resource_error:{name}")
                     self.degraded_reasons.discard(f"validation_failed:{name}")
+                    self.extras.setdefault("validation_errors", {}).pop(name, None)
                 except Exception as val_err:
                     self.degraded_reasons.add(f"validation_failed:{name}")
+                    self.extras.setdefault("validation_errors", {})[name] = _field_path(val_err)
+                    q = self.extras.setdefault("quarantine", [])
+                    if len(q) < 20:  # drained into the quarantine table by the persist hook
+                        q.append({"resource": name, "errors": _field_path(val_err), "raw": _raw_sample(res.data)})
                     log.warning("store.validation_failed", resource=name, error=str(val_err))
 
         self.stale = stale_flag
@@ -112,7 +140,11 @@ class WorldState:
                 allocations=new_data["allocations"],
                 metrics=new_data["metrics"],
             )
-            self.last_sync_time = now
+            # age = time since the last snapshot where EVERY resource was fresh; carried-forward (last-good) data
+            # must not look new, otherwise the UI would show "1 s old" during a 60 s outage
+            if not any(isinstance(r, Exception) for r in raw_results.values()) and len(raw_results) >= len(
+                    resource_keys):
+                self.last_sync_time = now
             self.last_tick = self.snapshot.instance.tick
             # a complete snapshot exists again: boot-time "missing resources" no longer applies
             self.degraded_reasons = {r for r in self.degraded_reasons if not r.startswith("missing_resources:")}
@@ -149,6 +181,21 @@ class WorldState:
                 target_tick = a.expected_arrival_tick or (a.created_tick + 2)
                 items.append((a.destination_station_id, a.fuel_type, target_tick, a.quantity))
         return items
+
+    def _system_block(self) -> dict[str, Any]:
+        """Component health as measured by the HealthMonitor (real traffic), not assumed."""
+        sysx = self.extras.get("system") or {}
+        comps = sysx.get("components") or {}
+        return {
+            **{k: v.get("status", "UNKNOWN") for k, v in comps.items()},
+            "components": comps,
+            "mode_reasons": sysx.get("mode_reasons", []),
+            "sim_down_for_s": sysx.get("sim_down_for_s", 0.0),
+            "no_route_stations": sysx.get("no_route_stations", []),
+            "incidents_open": sysx.get("incidents_open", 0),
+            "breakers": {"simulator": (comps.get("simulator") or {}).get("breaker", "UNKNOWN")},
+            "forecaster": (self.extras.get("forecast") or {}).get("model", "seasonal@builtin"),
+        }
 
     def to_public_json(self) -> dict[str, Any]:
         """Format the current state into the public contract defined in 21_API_CONTRACTS.md §2.1."""
@@ -253,13 +300,5 @@ class WorldState:
             "cover": self.extras.get("cover"),
             "forecast": self.extras.get("forecast"),
             "impact_meter": self.extras.get("impact_meter"),
-            "system": {
-                "simulator": "UP",
-                "sse": "CONNECTED",
-                "intelligence": "UP",
-                "db": "UP",
-                "redis": "UP",
-                "breakers": {"simulator": "CLOSED"},
-                "forecaster": (self.extras.get("forecast") or {}).get("model", "seasonal@builtin"),
-            },
+            "system": self._system_block(),
         }

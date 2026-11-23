@@ -41,7 +41,23 @@ async def get_state(
         except Exception:
             state_dict = None
 
-    # 2. Fallback to Database if Redis missed or failed
+    # 2. Redis down (F10): ask the engine directly. It holds the live state in memory.
+    if state_dict is None:
+        from ..config import get_settings
+        st = get_settings()
+        try:
+            r = await request.app.state.http.get(f"{st.engine_internal_url}/debug/state", timeout=2.0,
+                                                 headers={"X-Internal-Token": st.engine_internal_token})
+            if r.status_code == 200:
+                state_dict = r.json()
+                state_dict["degraded"] = True
+                state_dict["degraded_reasons"] = [*state_dict.get("degraded_reasons", []),
+                                                  "cache down: state read from the engine directly"]
+                is_degraded = True
+        except Exception as eng_err:
+            log.warning("api.engine_state_fallback_failed", error=str(eng_err))
+
+    # 3. Fallback to Database if both Redis and the engine are unavailable
     if state_dict is None:
         sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
         if sessionmaker:

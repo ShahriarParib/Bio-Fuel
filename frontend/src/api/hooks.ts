@@ -2,7 +2,7 @@
  *  serves cached state (ETag) so a 1 s poll is cheap. */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, setToken } from "./client";
-import type { Alert, Decision, ListOf, SystemStatus, WorldState } from "./types";
+import type { Alert, Decision, Incident, ListOf, SystemStatus, WorldState } from "./types";
 
 const TOKEN_KEY = "fsip.operatorToken";
 
@@ -41,10 +41,23 @@ export const useAlerts = (status = "OPEN") =>
 export const useSystemStatus = () =>
   useQuery({ queryKey: ["system-status"], queryFn: () => api<SystemStatus>("/system/status"), refetchInterval: 3000 });
 
+export const useIncidents = () =>
+  useQuery({ queryKey: ["incidents"], queryFn: () => api<{ items: Incident[]; open: number }>("/incidents"), refetchInterval: 2000 });
+
+/** Demo Control endpoints (operator token + DEMO_CONTROLS=true on the api). */
+export function useDemo() {
+  const done = useInvalidate();
+  return useMutation({
+    mutationFn: ({ path, body }: { path: string; body?: unknown }) =>
+      api<Record<string, unknown>>(`/demo/${path}`, { method: "POST", body: JSON.stringify(body ?? {}) }),
+    onSettled: done,
+  });
+}
+
 function useInvalidate() {
   const qc = useQueryClient();
   return () => {
-    for (const k of ["state", "recommendations", "decisions", "alerts"]) qc.invalidateQueries({ queryKey: [k] });
+    for (const k of ["state", "recommendations", "decisions", "alerts", "system-status", "incidents"]) qc.invalidateQueries({ queryKey: [k] });
   };
 }
 
