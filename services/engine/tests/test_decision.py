@@ -167,3 +167,30 @@ def test_degraded_reasons_clear_when_data_returns():
     ws.apply_snapshot(ok)
     assert ws.snapshot is not None
     assert not ws.degraded_reasons
+
+
+def test_optimizer_plan_is_feasible_and_refills_the_low_station(monkeypatch):
+    from app.decision import optimizer
+
+    # 300 L at 60 L/tick = 5 ticks of cover: shipping later would be too late, so the MPC must ship now
+    s = world(inventories={"station-mirpur": {"DIESEL": 300}, "station-tongi": {"PETROL": 800}})
+    p = optimizer.plan(s)
+    assert p.policy_version == "optimizer@1.0.0"
+    assert any(ln.destination_station_id == "station-mirpur" and ln.fuel_type == "DIESEL" for ln in p.lines), p.skipped
+    _assert_plan_feasible(s, p.lines)
+
+
+def test_optimizer_respects_a_cut_single_route():
+    from app.decision import optimizer
+
+    s = world(tick=10, events=[disruption(10, 40, ["route-gazipur-tongi"], status="ACTIVE")],
+              inventories={"station-tongi": {"DIESEL": 500}})
+    assert not [ln for ln in optimizer.plan(s).lines if ln.route_id == "route-gazipur-tongi"]
+
+
+def test_optimizer_force_fail_drill(monkeypatch):
+    from app.decision import optimizer
+
+    monkeypatch.setenv("OPTIMIZER_FORCE_FAIL", "true")
+    with pytest.raises(optimizer.OptimizerFailed):
+        optimizer.solve(world())

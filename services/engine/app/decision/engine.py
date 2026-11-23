@@ -21,11 +21,12 @@ from fsip_common.logging import get_logger
 from prometheus_client import Counter, Gauge, Histogram
 
 from ..db import repo
+from ..intelligence.client import FALLBACK_ACTIVATIONS
 from ..risk.stockout import shipment_impact
 from ..sim.client import SimClient
 from ..state.publisher import Publisher
 from ..state.store import WorldState
-from . import heuristic
+from . import heuristic, optimizer
 from .constraints import MIN_LINE_LITERS, Budget, Line, check_line
 from .executor import decision_status_after_execution, submit_line
 from .planning import PlanningState, inflight_from_allocations, naive_forecast
@@ -69,6 +70,9 @@ class DecisionEngine:
         self.auto_min_confidence = auto_min_confidence
         self.reserve_fraction = reserve_fraction
         self.forecast_service = forecast_service
+        self.last_plan_ms: float | None = None
+        self.last_policy_used: str | None = None
+        self.last_fallback_reason: str | None = None
         self.decisions: OrderedDict[int, dict[str, Any]] = OrderedDict()  # recent, newest last
         self.last_planned_tick = -1
         self.last_cycle_tick = -1
@@ -133,10 +137,20 @@ class DecisionEngine:
                    for d in self.decisions.values() if d["status"] == "PENDING_APPROVAL" for ln in d["lines"]}
         t0 = time.perf_counter()
         policy_used, fallback_reason = "heuristic", None
-        if self.store.policy != "heuristic":
-            fallback_reason = f"{self.store.policy} not available yet; heuristic used"
-        plan = heuristic.plan(state, reserve_fraction=self.reserve_fraction)
+        plan = None
+        if self.store.policy == "optimizer":
+            try:
+                plan = await asyncio.to_thread(optimizer.plan, state, self.reserve_fraction)
+                policy_used = "optimizer"
+            except Exception as err:  # solver error, timeout, infeasible, or the OPTIMIZER_FORCE_FAIL drill
+                fallback_reason = f"optimizer failed ({str(err)[:80]}); heuristic used"
+                FALLBACK_ACTIVATIONS.labels(component="optimizer", reason=type(err).__name__).inc()
+                log.warning("fallback.activated", component="optimizer", reason=str(err)[:200])
+        if plan is None:
+            plan = heuristic.plan(state, reserve_fraction=self.reserve_fraction)
         DECISION_LATENCY.labels(policy=policy_used).observe(time.perf_counter() - t0)
+        self.last_plan_ms = round((time.perf_counter() - t0) * 1000, 1)
+        self.last_policy_used, self.last_fallback_reason = policy_used, fallback_reason
         lines = [ln for ln in plan.lines if (ln.destination_station_id, ln.fuel_type) not in covered]
         if not lines:
             return None

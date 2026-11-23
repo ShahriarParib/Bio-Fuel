@@ -24,6 +24,7 @@ export function RecommendationCard({ d, tick, canAct }: { d: Decision; tick: num
           confidence {pct(d.confidence, 0)}{lowConfidence ? " · human review required" : ""}
         </span>
         {d.degraded && <span className="rounded bg-risk-high/15 px-1.5 py-0.5 text-risk-high">degraded data</span>}
+        {d.fallback_reason && <span className="rounded bg-risk-medium/15 px-1.5 py-0.5 text-risk-medium" title={d.fallback_reason}>fallback policy</span>}
         <span className="ml-auto text-ink-muted">expires in {ticksLeft} ticks</span>
       </header>
 

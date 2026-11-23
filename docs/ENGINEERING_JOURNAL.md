@@ -200,6 +200,16 @@ Nothing here describes real fuel infrastructure.
 - **Demo line:** "This is the card from the brief, with real numbers: Cox's Bazar petrol, dry in 5.8 hours; ship
   8,550 litres from Patiya and the risk goes from 100% to 0%."
 
+### B5: LP optimizer, policy switch, Impact Meter, evaluation matrix (2026-11-24)
+- **Goal:** a real optimizer behind the same safety gate, a provable "value of the platform" number, and a measured comparison of policies.
+- **What we built:** `services/engine/app/decision/optimizer.py` (rolling-horizon LP, PuLP 2.9 + CBC, p10-demand overflow path), runtime policy switch `POST /api/control/policy` (supervisor token), automatic heuristic fallback with `fsip_fallback_activations_total`, `intelligence/counterfactual.py` (exact do-nothing replay = Impact Meter), `evaluation/harness.py --matrix`, UI policy chip + Impact Meter panel.
+- **How / approach:** the LP plans a horizon but only the first tick is executed; every line still passes `decision/constraints.py`, so the optimizer can never be less safe than the heuristic. If the solver fails or times out the heuristic answers and the card says "fallback policy". The Impact Meter replays the same world without our shipments (inventory minus real demand), so "litres of stockout prevented" is computed, not claimed.
+- **Tools:** PuLP/CBC, asyncio.to_thread, the official simulator `/admin` endpoints (harness only).
+- **Evidence:** `docs/evidence/evaluation.md` (15 runs, deterministic). 288 ticks: do-nothing SL 0.26-0.31 → heuristic/optimizer 0.99-1.00, 0 failed shipments in every run. 600 ticks (supply ends at tick 212, so a ceiling exists): optimizer lifts the worst station 0.868 → 0.929 (baseline) and 0.714 → 0.737 (crisis) at equal total SL, i.e. it spreads scarcity more fairly. Decide p95 72-205 ms. Impact Meter in the live run: without platform SL 0.461 (matches measured do-nothing), 100,452 L prevented.
+- **Problems hit → fix:** optimizer test assumed 1,500 L was not urgent (it was) → test uses 300 L; crisis optimizer shows 80 L overflow from one arrival rounding against a demand dip (logged, below the 0.98 guard's tolerance; follow-up in B6).
+- **Judging criterion:** intelligence component, decision quality, explainability.
+- **Demo line:** "Same world, same seed: doing nothing serves 26% of demand; we serve 99%, and when fuel truly runs out the optimizer shares the shortage fairly."
+
 <!-- New entries go here, one per block (B1-B8, E1-E9). Copy the template below. -->
 
 ## 5. What we discovered about the simulator
@@ -212,8 +222,8 @@ Nothing here describes real fuel infrastructure.
 | 20.1 | Working application | `docker compose up -d --build` | in progress |
 | 20.2 | Source repository | this repo + README | in progress |
 | 20.3 | Simulator integration | `services/engine/app/sim/` | done (P01) |
-| 20.4 | Intelligence component | forecast, risk, LP, twin | planned (B3, B5) |
-| 20.5 | Operator interface | `frontend/` | planned (B4) |
+| 20.4 | Intelligence component | forecast, risk, LP, twin | done (B3, B5) |
+| 20.5 | Operator interface | `frontend/` | done (B4) |
 | 20.6 | Architecture diagram | `docs/architecture.md` | in progress |
 | 20.7 | Deployment | Compose, CI/CD, `scripts/deploy.sh` | planned (B8) |
 | 20.8 | Observability evidence | `docs/evidence/observability.md` | planned (B7) |
