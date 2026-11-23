@@ -100,6 +100,10 @@ async def system_status(request: Request):
         "no_route_stations": system.get("no_route_stations", []),
         "data_tick": (state or {}).get("tick"),
         "data_age_seconds": (state or {}).get("age_seconds"),
+        # decision inputs flagged degraded/stale → confidence 0.5 and autopilot will not execute;
+        # "recovered" means this is false again
+        "data_degraded": bool((state or {}).get("degraded", True)),
+        "data_degraded_reasons": (state or {}).get("degraded_reasons", []),
         "components": components,
         "versions": {"api": os.getenv("APP_VERSION", "dev"), "git_sha": os.getenv("GIT_SHA", "unknown")},
         "p95_latency_ms": stats["p95_ms"],
@@ -161,6 +165,12 @@ class FaultBody(BaseModel):
 @router.post("/demo/faults")
 async def inject_fault(body: FaultBody, request: Request, actor: Actor = Depends(require_operator),
                        _: None = Depends(_demo_enabled)):
+    # SRE error-budget policy: no chaos experiments while the domain budget is spent (a supervisor may still run one)
+    slo = ((await _redis_json(request, "fsip:state")) or {}).get("slo") or {}
+    if slo.get("change_freeze") and actor.role != "supervisor":
+        raise HTTPException(status_code=409, detail={
+            "code": "CHAOS_PAUSED", "message": f"fuel service-level error budget at "
+            f"{slo.get('budget_remaining', 0):.0%}: fault injection paused (supervisor token overrides)"})
     params: dict[str, Any] = {}
     if body.rate is not None:
         params["rate"] = body.rate

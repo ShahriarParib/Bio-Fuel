@@ -122,7 +122,8 @@ def health() -> Board:
     b = Board("fsip-health", "FSIP - Service Health",
               "RED metrics, dependencies as measured from real traffic, engine mode, containers.")
     b.row("Engine state")
-    b.add("stat", "Engine mode", [q("fsip_engine_mode == 1", "{{mode}}")], w=6, h=5,
+    b.add("stat", "Engine mode (now)", [{**q("fsip_engine_mode == 1", "{{mode}}"), "instant": True, "range": False}],
+          w=6, h=5,
           options={"reduceOptions": {"calcs": ["lastNotNull"]}, "textMode": "name", "colorMode": "background"},
           thresholds=[(None, "blue")])
     b.add("state-timeline", "Component status (2 up, 1 degraded, 0 down)", [q("fsip_component_status", "{{component}}")],
@@ -136,7 +137,7 @@ def health() -> Board:
         q('histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service="api"}[1m])))', "p95"),
         q('histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{service="api"}[1m])))', "p99")],
         w=8, unit="s")
-    b.add("timeseries", "API 5xx ratio", [q('sum(rate(http_requests_total{service="api",status=~"5.."}[1m])) / '
+    b.add("timeseries", "API 5xx ratio", [q('(sum(rate(http_requests_total{service="api",status=~"5.."}[1m])) or vector(0)) / '
                                             'clamp_min(sum(rate(http_requests_total{service="api"}[1m])), 1e-9)', "5xx")],
           w=8, unit="percentunit")
     b.row("Simulator (real traffic)")

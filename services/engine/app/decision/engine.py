@@ -440,30 +440,25 @@ class DecisionEngine:
             raise DecisionError(422, "BAD_MODE", "mode must be advisory or autopilot")
         if mode == "autopilot" and (self.store.stale or self.store.degraded):
             raise DecisionError(409, "STALE_DATA", "cannot enable autopilot while data is stale or degraded")
-        slo = self.store.extras.get("slo") or {}
-        override = False
-        if mode == "autopilot" and slo.get("mode") == "enforce" and not slo.get("autopilot_allowed", True):
-            if role != "supervisor":
-                raise DecisionError(409, "SLO_BUDGET_EXHAUSTED",
-                                    f"fuel service-level error budget at {slo.get('budget_remaining', 0):.0%} "
-                                    "(< 25%): autopilot needs a supervisor override")
-            override = True
         self.store.operating_mode = mode
         OPERATOR_ACTIONS.labels(action=f"mode_{mode}").inc()
         await self._db(repo.audit_log, actor=actor, action="engine.mode", entity_type="engine", entity_id="mode",
-                       payload={"mode": mode, "role": role, "slo_override": override})
-        if override:
-            slo["last_action"] = f"supervisor {actor} overrode the error-budget policy"
+                       payload={"mode": mode, "role": role})
         await self.publisher.event("mode.changed", {"engine_mode": self.store.engine_mode, "operating_mode": mode,
                                                     "reasons": sorted(self.store.degraded_reasons)})
         return {"mode": mode}
 
-    async def set_policy(self, actor: str, policy: str) -> dict[str, Any]:
+    async def set_policy(self, actor: str, policy: str, override: bool = False) -> dict[str, Any]:
         if policy not in ("optimizer", "heuristic"):
             raise DecisionError(422, "BAD_POLICY", "policy must be optimizer or heuristic")
+        slo = self.store.extras.get("slo") or {}
+        if slo.get("change_freeze") and policy != self.store.policy and not override:
+            raise DecisionError(409, "SLO_CHANGE_FREEZE",
+                                f"fuel service-level error budget at {slo.get('budget_remaining', 0):.0%}: "
+                                "change freeze; pass override=true to switch the policy anyway (audit-logged)")
         self.store.policy = policy
         await self._db(repo.audit_log, actor=actor, action="engine.policy", entity_type="engine",
-                       entity_id="policy", payload={"policy": policy})
+                       entity_id="policy", payload={"policy": policy, "freeze_override": bool(override)})
         return {"policy": policy}
 
     # ------------------------------------------------------------------ publishing

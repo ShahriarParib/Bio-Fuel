@@ -184,6 +184,9 @@ class SyncLoop:
                 raw_obs = validate_resource("demand_history", dh_res.data)
                 if isinstance(raw_obs, list):
                     new_count = self.store.ingest_demand(raw_obs)
+                    # must clear on success: left sticky, it kept every decision at confidence 0.5 after an outage, so
+                    # autopilot silently never executed again (found by re-running the F1 drill with autopilot on)
+                    self.store.degraded_reasons.discard("demand_fetch_failed")
                     log.debug("sync.demand_ingested", new_count=new_count, tick=current_tick)
         except Exception as err:
             self.store.degraded_reasons.add("demand_fetch_failed")

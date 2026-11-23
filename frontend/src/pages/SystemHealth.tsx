@@ -87,7 +87,8 @@ function SloPanel() {
           style={{ width: `${b * 100}%` }} />
       </div>
       <div className="mt-1 text-xs text-ink-muted">error budget left <b className="text-ink">{(b * 100).toFixed(0)} %</b> · policy: {slo.policy}
-        {slo.mode !== "enforce" && ` (${slo.mode} only)`} · autopilot {slo.autopilot_allowed ? "allowed" : "needs a supervisor override"}</div>
+        {slo.mode !== "enforce" && ` (${slo.mode} only)`}
+        {slo.change_freeze && <b className="text-state-down"> · CHANGE FREEZE: policy switches and fault injects need a supervisor</b>}</div>
       {slo.last_action && <div className="mt-1 text-xs text-risk-high">{slo.last_action}</div>}
     </Card>
   );

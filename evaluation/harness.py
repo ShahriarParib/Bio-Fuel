@@ -61,12 +61,8 @@ def run(scenario: str, policy: str, ticks: int) -> dict:
     for ev in SCENARIOS[scenario]:
         c.post(f"{SIM}/admin/events", json=ev).raise_for_status()
     if policy != "do_nothing":
-        c.post(f"{API}/api/control/policy", json={"policy": policy}, headers=SUP).raise_for_status()
-        c.post(f"{API}/api/control/mode", json={"mode": "autopilot"}, headers=SUP).raise_for_status()
-        slo_mode = ((c.get(f"{ENGINE}/health/ready").json().get("slo") or {}).get("mode"))
-        if slo_mode == "enforce" and scenario != "baseline":
-            print("WARNING: SLO_POLICY=enforce: the error-budget policy may switch autopilot off mid-run; "
-                  "start the engine with SLO_POLICY=observe to measure a policy", file=sys.stderr)
+        c.post(f"{API}/api/control/policy", json={"policy": policy, "override": True}, headers=SUP).raise_for_status()
+        c.post(f"{API}/api/control/mode", json={"mode": "autopilot"}, headers=OP).raise_for_status()
 
     audit: dict[int, dict] = {}
     plan_ms, fallbacks = [], 0
@@ -90,7 +86,7 @@ def run(scenario: str, policy: str, ticks: int) -> dict:
             audit[ev["id"]] = ev
     finally:
         c.post(f"{API}/api/control/mode", json={"mode": "advisory"}, headers=OP)
-        c.post(f"{API}/api/control/policy", json={"policy": "optimizer"}, headers=SUP)
+        c.post(f"{API}/api/control/policy", json={"policy": "optimizer", "override": True}, headers=SUP)
 
     m = c.get(f"{SIM}/v1/metrics").json()
     allocs = {a["id"]: a for a in c.get(f"{SIM}/v1/allocations").json()}

@@ -1,8 +1,13 @@
 """Domain SLO + error-budget policy (12 F-SLO).
 
 SLO: fuel service level = served / (served + unmet) litres over the last 96 ticks (one simulated day) >= 99 %.
-Policy: when less than 25 % of the error budget is left, autopilot is forced OFF and cannot be re-enabled until the
-budget recovers: if the platform is already failing the people it serves, humans take over.
+Policy (SRE error-budget policy: freeze risky changes, keep fixing): when less than 25 % of the budget is left,
+  - a CHANGE FREEZE starts: switching the decision policy (optimizer/heuristic) needs a supervisor;
+  - operators are paged (Prometheus burn-rate alerts FuelServiceLevelFast/SlowBurn → Alertmanager → UI);
+  - autopilot KEEPS running: recovery shipments are the fix, not the risk.
+Why not "autopilot off" (the first version): the F1 drill showed it backfires. A 75 s simulator outage spent the budget
+(no shipments could be made), the policy switched autopilot off exactly when the simulator came back, nobody was
+approving, and the service level fell from 99 % to 81 %. Turning off the remedy is not a safety measure.
 
 Prometheus computes the same SLI (slo.yml) for burn-rate alerts; the engine computes it from ticks so the policy does
 not depend on the observability stack being up.
@@ -40,13 +45,14 @@ class SloStatus:
     budget: float
     burn: float
     window_ticks: int
-    autopilot_allowed: bool
+    autopilot_allowed: bool  # kept for the API shape: True = no change freeze
 
     def as_dict(self) -> dict:
         return {"slo": "fuel_service_level", "target": TARGET, "window_ticks": self.window_ticks,
                 "sli": None if self.sli is None else round(self.sli, 4), "budget_remaining": round(self.budget, 3),
-                "burn_rate": round(self.burn, 2), "autopilot_allowed": self.autopilot_allowed,
-                "policy": f"budget < {POLICY_MIN_BUDGET:.0%} → autopilot forced off"}
+                "burn_rate": round(self.burn, 2), "autopilot_allowed": True,
+                "change_freeze": not self.autopilot_allowed,
+                "policy": f"budget < {POLICY_MIN_BUDGET:.0%} → change freeze + page operators; autopilot keeps fixing"}
 
 
 class DomainSlo:
@@ -81,12 +87,7 @@ class DomainSlo:
 
 
 async def enforce(ws, slo: DomainSlo, publisher, mode: str = "enforce") -> SloStatus | None:
-    """Cycle hook: update the SLO, publish it, and force autopilot off when the budget crosses below the floor.
-
-    Forced once per crossing (a latch), not every cycle: afterwards an operator cannot re-enable autopilot, but a
-    supervisor can override deliberately (recorded). `mode="observe"` only measures (used by the evaluation harness,
-    which runs crisis scenarios in autopilot on purpose).
-    """
+    """Cycle hook: update the SLO, publish it, and start/end the change freeze when the budget crosses the floor."""
     if ws.snapshot is None:
         return None
     met = ws.snapshot.metrics
@@ -96,13 +97,18 @@ async def enforce(ws, slo: DomainSlo, publisher, mode: str = "enforce") -> SloSt
         SLI.labels(slo="fuel_service_level").set(st.sli)
     doc = st.as_dict()
     doc["mode"] = mode
+    if mode != "enforce":
+        doc["change_freeze"] = False
     prev = ws.extras.get("slo") or {}
     doc["last_action"] = prev.get("last_action")
-    crossed = prev.get("autopilot_allowed", True) and not st.autopilot_allowed
-    if mode == "enforce" and crossed and ws.operating_mode == "autopilot":
-        ws.operating_mode = "advisory"
-        doc["last_action"] = f"autopilot forced OFF at tick {ws.snapshot.instance.tick} (budget {st.budget:.0%})"
-        log.warning("slo.policy_autopilot_off", budget=round(st.budget, 3), sli=doc["sli"])
-        await publisher.event("mode.changed", {"operating_mode": "advisory", "reason": doc["last_action"]})
+    tick = ws.snapshot.instance.tick
+    if doc["change_freeze"] and not prev.get("change_freeze"):
+        doc["last_action"] = f"change freeze started at tick {tick} (budget {st.budget:.0%}); autopilot keeps running"
+        log.warning("slo.change_freeze_started", budget=round(st.budget, 3), sli=doc["sli"])
+        await publisher.event("slo.change_freeze", {"active": True, "budget": st.budget})
+    elif prev.get("change_freeze") and not doc["change_freeze"]:
+        doc["last_action"] = f"change freeze lifted at tick {tick} (budget {st.budget:.0%})"
+        log.info("slo.change_freeze_lifted", budget=round(st.budget, 3))
+        await publisher.event("slo.change_freeze", {"active": False, "budget": st.budget})
     ws.extras["slo"] = doc
     return st

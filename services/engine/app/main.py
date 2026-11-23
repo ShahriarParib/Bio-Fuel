@@ -127,7 +127,9 @@ async def lifespan(app: FastAPI):
             # DB unavailable at boot: a time-based id still keeps idempotency keys unique; history writes for this
             # run will be retried by the buffer and dropped if the FK never resolves.
             store.sim_run_id = int(time.time())
-            store.degraded_reasons.add("sim_run_unregistered")
+            # not a data-quality problem (only history rows are affected), so it must not lower decision confidence
+            store.extras.setdefault("warnings", []).append(
+                "sim_run not registered in the history DB (DB down at start)")
             log.error("sim_run.fallback_id", sim_run_id=store.sim_run_id, error=str(err))
 
     # 5. Define pipeline hooks to execute after each successful sync cycle
@@ -417,6 +419,7 @@ class ModeBody(ActorBody):
 
 class PolicyBody(ActorBody):
     policy: str
+    override: bool = False
 
 
 def _engine() -> DecisionEngine:
@@ -464,7 +467,7 @@ async def set_mode(body: ModeBody):
 
 @app.post("/internal/policy", dependencies=[Depends(require_internal)])
 async def set_policy(body: PolicyBody):
-    return await _engine().set_policy(body.actor, body.policy)
+    return await _engine().set_policy(body.actor, body.policy, body.override)
 
 
 @app.post("/internal/alerts/{alert_id}/ack", dependencies=[Depends(require_internal)])

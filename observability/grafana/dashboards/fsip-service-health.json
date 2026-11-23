@@ -29,7 +29,7 @@
   {
    "id": 2,
    "type": "stat",
-   "title": "Engine mode",
+   "title": "Engine mode (now)",
    "description": "",
    "gridPos": {
     "x": 0,
@@ -49,7 +49,9 @@
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
-     }
+     },
+     "instant": true,
+     "range": false
     }
    ],
    "fieldConfig": {
@@ -278,7 +280,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(rate(http_requests_total{service=\"api\",status=~\"5..\"}[1m])) / clamp_min(sum(rate(http_requests_total{service=\"api\"}[1m])), 1e-9)",
+     "expr": "(sum(rate(http_requests_total{service=\"api\",status=~\"5..\"}[1m])) or vector(0)) / clamp_min(sum(rate(http_requests_total{service=\"api\"}[1m])), 1e-9)",
      "legendFormat": "5xx",
      "datasource": {
       "type": "prometheus",

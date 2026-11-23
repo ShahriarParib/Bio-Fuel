@@ -15,18 +15,18 @@ groups:
     rules:
       # ---- error ratios per window (1 - SLI) ----
       - record: slo:api_availability:error_ratio_rate5m
-        expr: sum(rate(http_requests_total{service="api",status=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{service="api"}[5m])), 1e-9)
+        expr: (sum(rate(http_requests_total{service="api",status=~"5.."}[5m])) or vector(0)) / clamp_min(sum(rate(http_requests_total{service="api"}[5m])), 1e-9)
       - record: slo:api_availability:error_ratio_rate30m
-        expr: sum(rate(http_requests_total{service="api",status=~"5.."}[30m])) / clamp_min(sum(rate(http_requests_total{service="api"}[30m])), 1e-9)
+        expr: (sum(rate(http_requests_total{service="api",status=~"5.."}[30m])) or vector(0)) / clamp_min(sum(rate(http_requests_total{service="api"}[30m])), 1e-9)
       - record: slo:api_availability:error_ratio_rate1h
-        expr: sum(rate(http_requests_total{service="api",status=~"5.."}[1h])) / clamp_min(sum(rate(http_requests_total{service="api"}[1h])), 1e-9)
+        expr: (sum(rate(http_requests_total{service="api",status=~"5.."}[1h])) or vector(0)) / clamp_min(sum(rate(http_requests_total{service="api"}[1h])), 1e-9)
       - record: slo:api_availability:error_ratio_rate6h
-        expr: sum(rate(http_requests_total{service="api",status=~"5.."}[6h])) / clamp_min(sum(rate(http_requests_total{service="api"}[6h])), 1e-9)
+        expr: (sum(rate(http_requests_total{service="api",status=~"5.."}[6h])) or vector(0)) / clamp_min(sum(rate(http_requests_total{service="api"}[6h])), 1e-9)
 
       - record: slo:api_latency:error_ratio_rate5m
-        expr: 1 - sum(rate(http_request_duration_seconds_bucket{service="api",route="/api/state",le="0.25"}[5m])) / clamp_min(sum(rate(http_request_duration_seconds_count{service="api",route="/api/state"}[5m])), 1e-9)
+        expr: ((sum(rate(http_request_duration_seconds_count{service="api",route="/api/state"}[5m])) - sum(rate(http_request_duration_seconds_bucket{service="api",route="/api/state",le="0.25"}[5m]))) / clamp_min(sum(rate(http_request_duration_seconds_count{service="api",route="/api/state"}[5m])), 1e-9)) or vector(0)
       - record: slo:api_latency:error_ratio_rate1h
-        expr: 1 - sum(rate(http_request_duration_seconds_bucket{service="api",route="/api/state",le="0.25"}[1h])) / clamp_min(sum(rate(http_request_duration_seconds_count{service="api",route="/api/state"}[1h])), 1e-9)
+        expr: ((sum(rate(http_request_duration_seconds_count{service="api",route="/api/state"}[1h])) - sum(rate(http_request_duration_seconds_bucket{service="api",route="/api/state",le="0.25"}[1h]))) / clamp_min(sum(rate(http_request_duration_seconds_count{service="api",route="/api/state"}[1h])), 1e-9)) or vector(0)
 
       - record: slo:decision_freshness:error_ratio_rate5m
         expr: avg_over_time((fsip_ticks_behind > bool 2)[5m:15s])

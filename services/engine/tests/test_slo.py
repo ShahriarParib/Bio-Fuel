@@ -35,25 +35,31 @@ def _ws(tick, served, unmet, mode="autopilot"):
                            sim_run_id=1, operating_mode=mode, extras={})
 
 
-def test_policy_forces_autopilot_off_once_on_crossing():
+def test_budget_exhaustion_freezes_changes_but_keeps_autopilot():
+    """F1 drill lesson: switching the remedy off after an outage made it worse (99 % → 81 %)."""
     s, pub = DomainSlo(window_ticks=96), Pub()
     ws = _ws(0, 0.0, 0.0)
     asyncio.run(enforce(ws, s, pub))
     ws.snapshot = _ws(1, 1000.0, 0.0).snapshot
     asyncio.run(enforce(ws, s, pub))
-    assert ws.operating_mode == "autopilot" and ws.extras["slo"]["autopilot_allowed"]
+    assert not ws.extras["slo"]["change_freeze"]
     ws.snapshot = _ws(2, 1000.0, 500.0).snapshot             # budget blown
     asyncio.run(enforce(ws, s, pub))
-    assert ws.operating_mode == "advisory" and "forced OFF" in ws.extras["slo"]["last_action"]
-    ws.operating_mode = "autopilot"                           # supervisor override
+    assert ws.operating_mode == "autopilot"                   # the fix keeps running
+    assert ws.extras["slo"]["change_freeze"] and "freeze started" in ws.extras["slo"]["last_action"]
     ws.snapshot = _ws(3, 1100.0, 500.0).snapshot
     asyncio.run(enforce(ws, s, pub))
-    assert ws.operating_mode == "autopilot" and len(pub.events) == 1   # latch: not forced again
+    assert len(pub.events) == 1                               # announced once per crossing
+    s2 = DomainSlo(window_ticks=96)                           # new world: freeze lifted
+    ws.snapshot = _ws(0, 0.0, 0.0).snapshot
+    ws.sim_run_id = 2
+    asyncio.run(enforce(ws, s2, pub))
+    assert not ws.extras["slo"]["change_freeze"] and "lifted" in ws.extras["slo"]["last_action"]
 
 
-def test_observe_mode_never_switches():
+def test_observe_mode_never_freezes():
     s, ws = DomainSlo(), _ws(0, 0.0, 0.0)
     asyncio.run(enforce(ws, s, Pub(), mode="observe"))
     ws.snapshot = _ws(1, 100.0, 900.0).snapshot
     asyncio.run(enforce(ws, s, Pub(), mode="observe"))
-    assert ws.operating_mode == "autopilot" and ws.extras["slo"]["mode"] == "observe"
+    assert not ws.extras["slo"]["change_freeze"] and ws.extras["slo"]["mode"] == "observe"
