@@ -154,9 +154,23 @@ def main() -> int:
     ap.add_argument("--ticks", type=int, default=288)
     ap.add_argument("--matrix", action="store_true")
     ap.add_argument("--out", default="docs/evidence/evaluation.md")
+    # decision-quality gate for CI: exit 1 unless the run meets these
+    ap.add_argument("--assert-sl", type=float, default=None, help="minimum service level")
+    ap.add_argument("--assert-no-failures", action="store_true", help="0 failed allocations and 0 overflow litres")
     args = ap.parse_args()
     if not args.matrix:
-        print(json.dumps(run(args.scenario, args.policy, args.ticks)))
+        r = run(args.scenario, args.policy, args.ticks)
+        print(json.dumps(r))
+        problems = []
+        if args.assert_sl is not None and r["service_level"] < args.assert_sl:
+            problems.append(f"service level {r['service_level']} < {args.assert_sl}")
+        if args.assert_no_failures and (r["allocation_failures"] or r["overflow_liters"]):
+            problems.append(f"failures {r['allocation_failures']}, overflow {r['overflow_liters']} L")
+        if problems:
+            print("DECISION-QUALITY GATE FAILED: " + "; ".join(problems), file=sys.stderr)
+            return 1
+        if args.assert_sl is not None or args.assert_no_failures:
+            print("DECISION-QUALITY GATE PASSED", file=sys.stderr)
         return 0
     rows = []
     for scenario, ticks in MATRIX:

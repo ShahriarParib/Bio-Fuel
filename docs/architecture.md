@@ -1,272 +1,130 @@
-# 03: Architecture
+# Architecture
 
-> **v2 update:** read `13_ARCHITECTURE_V2.md` right after this file. It changes Postgres → TimescaleDB, pub/sub → Redis
-> Streams, adds notifier/Mailpit/Jaeger, JWT roles, feature flags, break-glass and the ledger, and **pins `pulp==2.9.0`**.
-> Where the two files differ, v2 wins.
+## 1. Components
 
-## 1. Big picture
+```mermaid
+flowchart TB
+  subgraph world[Organizers]
+    SIM[(BUP Fuel Supply Simulator<br/>REST /v1 · SSE /v1/stream · /admin)]
+  end
+  subgraph core[FSIP core: docker compose]
+    direction TB
+    UI[frontend<br/>React + TS, nginx :3000<br/>serves /breakglass/]
+    API[api :8080<br/>FastAPI, stateless, scalable xN]
+    ENG[engine :8100<br/>single writer to the simulator]
+    INT[intelligence :8200<br/>forecast service]
+    R[(Redis<br/>state · decisions · alerts · incidents · stream)]
+    DB[(TimescaleDB<br/>snapshots · demand · decisions · audit · quarantine)]
+  end
+  subgraph obs[observability: --profile obs]
+    PROM[Prometheus<br/>alerts + SLO rules]
+    AM[Alertmanager]
+    GRAF[Grafana<br/>4 dashboards]
+    LOKI[Loki + Promtail]
+  end
+  SIM -- "poll 1 s + SSE ticks" --> ENG
+  ENG -- "POST /v1/allocations (idempotency key)" --> SIM
+  ENG -- "POST /forecast (1.5 s, breaker)" --> INT
+  ENG -- "publish per tick" --> R
+  ENG -- "buffered writes" --> DB
+  API -- "read documents (ETag)" --> R
+  API -- "approve · reject · mode · policy (internal token)" --> ENG
+  API -- "/admin (demo controls, operator token)" --> SIM
+  UI -- "/api" --> API
+  PROM -- scrape --> ENG & API & INT
+  PROM --> AM -- "webhook → SYSTEM alerts" --> API
+  GRAF --> PROM & LOKI
+```
+
+| Service | Responsibility | Why separate |
+|---|---|---|
+| **engine** | the control loop; the only process that writes to the simulator | one writer = no double shipments, one place for every constraint |
+| **intelligence** | demand forecast service | can fail or be replaced without stopping decisions (the engine has a built-in fallback) |
+| **api** | operator API: auth, rate limit, SSE, Alertmanager webhook, demo controls | stateless: scales with replicas, never adds load to the engine |
+| **frontend** | console, served by nginx, which also serves the static break-glass plan | works even when the api is down (break-glass) |
+| Redis | the live documents the api serves; the domain event stream | cheap reads at any load; if it dies the api reads from the engine directly |
+| TimescaleDB | history and audit | writes are buffered: the engine keeps running when the DB is down |
+
+## 2. The control loop (engine, every simulator tick)
 
 ```mermaid
 flowchart LR
-  subgraph World["Organizer world"]
-    SIM[BUP Fuel Simulator<br/>:8000 REST + SSE]
-  end
-
-  subgraph Core["Our platform"]
-    ENG[engine<br/>Python worker :8100<br/>sync · risk · decide · act]
-    INT[intelligence<br/>FastAPI :8200<br/>forecast · anomaly · model registry]
-    API[api<br/>FastAPI :8080<br/>operator REST + SSE]
-    PG[(postgres :5432<br/>history · decisions · alerts)]
-    RD[(redis :6379<br/>live state cache + pub/sub)]
-    FE[frontend<br/>React + nginx :3000]
-  end
-
-  subgraph Obs["Observability"]
-    PROM[prometheus :9090]
-    GRAF[grafana :3001]
-    LOKI[loki :3100]
-    PTAIL[promtail]
-    AM[alertmanager :9093]
-  end
-
-  SIM -- REST (truth) --> ENG
-  SIM -- SSE (hint) --> ENG
-  ENG -- POST /v1/allocations --> SIM
-  ENG -- HTTP + timeout + breaker --> INT
-  ENG -- write --> PG
-  ENG -- publish state/alerts --> RD
-  API -- read --> RD
-  API -- read/write --> PG
-  API -- approve/reject cmds --> ENG
-  FE -- /api + SSE --> API
-  PROM -- scrape /metrics --> ENG & INT & API
-  PTAIL -- docker logs --> LOKI
-  GRAF --> PROM & LOKI
-  PROM --> AM
+  A[sync<br/>9 resources in parallel,<br/>validated, last-good kept] --> B[intelligence pipeline<br/>forecast · Monte Carlo risk ·<br/>anomalies · alerts · cover · Impact Meter]
+  B --> C[SLO<br/>domain error budget]
+  C --> D[decide<br/>LP optimizer, heuristic fallback,<br/>every line through constraints.py]
+  D --> E{autopilot gate<br/>conf ≥ 0.7 · ≤ 7,000 L ·<br/>fresh · NORMAL}
+  E -- yes --> F[execute<br/>idempotent POST]
+  E -- no --> G[wait for a human<br/>TTL 8 ticks, re-validated]
+  F & G --> H[publish to Redis · persist · break-glass]
 ```
 
-### Why this split (short)
-- **engine** is the single writer to the simulator. One process runs the control loop, so there are no
-  double-allocations and no distributed locking.
-- **intelligence** is separate so it can fail independently. That is exactly the brief's "prediction service
-  becomes unavailable" inject. The engine has a built-in fallback forecaster.
-- **api** is stateless (reads Redis/Postgres), so it can scale horizontally and absorb "API traffic increases"
-  without touching the control loop.
-- **Redis** holds the latest world snapshot + computed risk so the api can answer in a few ms and push live
-  updates via pub/sub.
-- **Postgres** holds durable history: snapshots, decisions, approvals, alerts, incidents, model registry, eval runs.
+Alongside, every second, the **HealthMonitor** judges each dependency from real traffic (breaker state, error ratio
+and p95 of the last 30 s, the stale header, DB/Redis probes) and drives the mode machine:
 
-## 2. Tech stack (fixed; do not change)
-
-| Concern | Choice | Version guidance |
+| Mode | Entered when | Effect |
 |---|---|---|
-| Backend language | Python | 3.12 |
-| Web framework | FastAPI + Uvicorn | fastapi ≥0.115, uvicorn[standard] |
-| HTTP client | httpx (async) | ≥0.27 |
-| SSE client | httpx-sse | ≥0.4 |
-| Validation | pydantic v2 + pydantic-settings | |
-| DB | PostgreSQL 16 + SQLAlchemy 2 (async) + asyncpg + Alembic | |
-| Cache/pubsub | Redis 7 + redis-py (asyncio) | |
-| Retry/circuit | tenacity + own small CircuitBreaker class | |
-| ML | numpy, pandas, scikit-learn, lightgbm, joblib | |
-| Optimizer | PuLP (bundled CBC) + highspy | **pin `pulp==2.9.0`** (4.x has a different API and no bundled solver) |
-| Metrics | prometheus-client | |
-| Logging | structlog → JSON to stdout | |
-| LLM (optional) | anthropic SDK; model from env `LLM_MODEL` (default `claude-haiku-5-5`) | only if `ANTHROPIC_API_KEY` is set |
-| Frontend | React 18 + TypeScript + Vite + TailwindCSS + Recharts + TanStack Query + React Router | Node 20+ |
-| Frontend serving | nginx (alpine), reverse-proxy `/api` → api:8080 | |
-| Observability | Prometheus, Grafana 11, Loki + Promtail, Alertmanager | |
-| Load test | k6 (grafana/k6 docker image) | |
-| CI | GitHub Actions | |
-| Lint/format | ruff, mypy (lenient), eslint, prettier | |
-| Tests | pytest, pytest-asyncio, respx (httpx mocking), Vitest (frontend) | |
-| Packaging | uv or pip with `requirements.txt` per service (use pip + requirements.txt for simplicity) | |
+| NORMAL | everything up | autopilot allowed |
+| DEGRADED | any component not up, or stale data | autopilot suspended; recommendations need a human |
+| SAFE_HOLD | simulator down ≥ 60 s | no writes; cached state shown with its true age |
+| NO_FEASIBLE_ROUTES | every route to some station is cut (now or at departure) | the operator is told which station is unreachable |
 
-## 3. Repository layout (create exactly this)
+## 3. Decisions: the constraints every shipment must pass (`services/engine/app/decision/constraints.py`)
 
-```
-fuel-platform/                      # repo root (create inside /home/iftakhar/poridhi_intern_initial/)
-├── README.md
-├── Makefile
-├── docker-compose.yml              # full stack
-├── docker-compose.override.yml     # dev: hot reload mounts (optional)
-├── .env.example
-├── .gitignore
-├── .github/workflows/ci.yml
-├── libs/
-│   └── fsip_common/                # shared python package (installed into each service image)
-│       ├── pyproject.toml
-│       └── fsip_common/
-│           ├── __init__.py
-│           ├── models.py           # pydantic models of simulator entities + our domain models
-│           ├── logging.py          # structlog setup
-│           ├── settings.py         # base settings
-│           └── timeutil.py         # tick <-> sim_time helpers
-├── services/
-│   ├── engine/
-│   │   ├── Dockerfile
-│   │   ├── requirements.txt
-│   │   ├── alembic.ini, migrations/        # engine owns DB migrations
-│   │   ├── app/
-│   │   │   ├── main.py                     # FastAPI app (health/metrics/internal cmds) + starts loops
-│   │   │   ├── config.py
-│   │   │   ├── sim/client.py               # resilient simulator client
-│   │   │   ├── sim/sse.py                  # SSE listener
-│   │   │   ├── sim/validation.py           # response validation + quarantine
-│   │   │   ├── state/store.py              # in-memory WorldState + Redis publish
-│   │   │   ├── state/sync.py               # sync loop (tick detection, reset detection)
-│   │   │   ├── intelligence/client.py      # calls intelligence svc with breaker
-│   │   │   ├── intelligence/fallback.py    # built-in seasonal forecaster
-│   │   │   ├── risk/projection.py          # projected inventory timelines
-│   │   │   ├── risk/stockout.py            # time-to-stockout + probability
-│   │   │   ├── detect/anomaly.py           # anomaly + disruption detectors
-│   │   │   ├── decision/heuristic.py       # greedy allocator (fallback)
-│   │   │   ├── decision/optimizer.py       # LP allocator
-│   │   │   ├── decision/constraints.py     # shared feasibility checks
-│   │   │   ├── decision/twin.py            # shadow twin for what-if
-│   │   │   ├── decision/engine.py          # orchestrates: plan → recommend → approve/auto → execute
-│   │   │   ├── decision/executor.py        # posts allocations idempotently, tracks outcomes
-│   │   │   ├── explain/explainer.py        # structured explanations + LLM narrative
-│   │   │   ├── alerts/manager.py           # alert lifecycle (open/ack/resolve), dedupe
-│   │   │   ├── db/models.py, db/session.py, db/repo.py
-│   │   │   └── observability/metrics.py
-│   │   └── tests/
-│   ├── intelligence/
-│   │   ├── Dockerfile, requirements.txt
-│   │   ├── app/main.py                     # /forecast, /anomaly/score, /models, /health, /metrics
-│   │   ├── app/models/seasonal.py          # seasonal-profile model
-│   │   ├── app/models/gbm.py               # LightGBM model
-│   │   ├── app/registry.py                 # model versioning (files + metadata json)
-│   │   ├── training/generate_dataset.py    # runs the simulator via /admin/step to build history
-│   │   ├── training/train.py               # trains + backtests + registers
-│   │   ├── artifacts/                      # versioned model files (committed small, or built in image)
-│   │   └── tests/
-│   └── api/
-│       ├── Dockerfile, requirements.txt
-│       ├── app/main.py                     # operator REST + SSE (/api/*)
-│       ├── app/routers/{state,risk,alerts,recommendations,decisions,system,assistant,whatif,control}.py
-│       ├── app/auth.py                     # simple role auth (viewer/operator) via API key/JWT
-│       └── tests/
-├── frontend/
-│   ├── Dockerfile, nginx.conf, package.json, vite.config.ts, tailwind.config.js
-│   └── src/{main.tsx, App.tsx, api/, pages/, components/, hooks/, lib/}
-├── observability/
-│   ├── prometheus/prometheus.yml, prometheus/alerts.yml
-│   ├── alertmanager/alertmanager.yml
-│   ├── grafana/provisioning/{datasources,dashboards}/…, grafana/dashboards/*.json
-│   ├── loki/loki-config.yml
-│   └── promtail/promtail-config.yml
-├── evaluation/
-│   ├── scenarios/*.yaml                    # our crisis scenarios (events to inject + duration)
-│   ├── harness.py                          # replay scenarios × policies, write report
-│   └── reports/                            # generated markdown/json/csv
-├── loadtest/
-│   ├── k6/{dashboard_read.js, decision_flow.js, spike.js}
-│   └── run.sh
-├── scripts/
-│   ├── chaos/{sim_unavailable.sh, sim_error_rate.sh, sim_latency.sh, sim_stale.sh, sse_disconnect.sh,
-│   │          kill_intelligence.sh, kill_db.sh, malformed_proxy.sh, clear.sh}
-│   ├── demo/{reset.sh, crisis_demand_spike.sh, crisis_combined.sh, step.sh}
-│   └── smoke_test.sh
-├── chaos-proxy/                            # tiny proxy that can corrupt simulator responses (malformed-field drill)
-└── docs/
-    ├── architecture.md, architecture.png
-    ├── assumptions.md, decisions.md (ADRs)
-    ├── demo-runbook.md
-    ├── api.md
-    └── evidence/{resilience.md, loadtest-report.md, observability.md, evaluation.md, screenshots/}
+| Constraint | Simulator behaviour it protects against (measured) |
+|---|---|
+| route not disrupted now **and not at departure** (t, t+1) | disruption starting at the departure tick → FAILED, fuel lost, no refund |
+| station room **at arrival** ≥ quantity, using p10 demand and every in-flight shipment | arrival overflow is silently lost; the simulator's own check ignores in-flight fuel |
+| per-depot dispatch capacity per tick, shared across fuels (halved when CONSTRAINED) | 409 DISPATCH_CAPACITY |
+| depot stock, route max shipment, station open | 409s |
+| minimum line size 300 L (unless critical) | noise shipments |
+
+The optimizer (PuLP + CBC) plans a rolling horizon but only the first tick is executed; its output still passes the
+same checks, so it can never be less safe than the heuristic. On any solver error the heuristic answers and the
+recommendation is tagged "fallback policy".
+
+## 4. Failure handling (brief §12)
+
+| Failure | Detection | Automatic response |
+|---|---|---|
+| simulator down / 503 | breaker OPEN from real calls | cached last-good state with its age, no writes, SAFE_HOLD after 60 s, half-open probes |
+| simulator flaky / slow | 30 s error ratio, p95 | retries with backoff (breaker counts failed requests, not attempts), 2 s timeout |
+| stale data | `x-simulator-stale` header | autopilot paused, approvals blocked |
+| malformed payload | pydantic validation | rejected, stored in `quarantine`, last-good kept, alert names the field |
+| SSE stream down | connection state | 1 s polling keeps the loop going; reconnect with backoff |
+| prediction service down | breaker, output validation | built-in seasonal forecaster, confidence 0.6 (human review) |
+| optimizer fails | exception / timeout | heuristic for that cycle |
+| DB down | probe, write errors | writes buffered (5,000), decisions get local ids, 2 s timeouts so the cycle never stalls |
+| Redis down | probe | api reads the engine directly; fail-fast guard so DNS lookups for the dead host do not starve the rest |
+| engine crash | container restart | state rebuilt from the simulator and the DB; idempotency keys prevent duplicates |
+| simulator reset | tick goes back / new seed | new run id, state cleared, history kept |
+| everything down | — | static break-glass plan (nginx) |
+
+Every row has a drill in `scripts/chaos/`; results in `docs/evidence/resilience.md`.
+
+## 5. Observability and SLOs
+
+Metrics `fsip_*` (engine, intelligence), `http_*` (api), cAdvisor, node-exporter → Prometheus (5 s) → 16 alert rules +
+4 SLOs with multi-window burn-rate alerts → Alertmanager → api webhook → SYSTEM alerts in the console. JSON logs →
+Promtail → Loki. Dashboards are generated from code (`observability/grafana/gen_dashboards.py`).
+
+The **domain SLO** is "fuel service level ≥ 99 % over one simulated day". Its error-budget policy, enforced by the
+engine itself: under 25 % budget → change freeze (policy switches need an audit-logged override; chaos injects need
+a supervisor) and operators are paged. Autopilot keeps running, because shipments are the remedy, not the risk.
+
+## 6. Delivery
+
+```mermaid
+flowchart LR
+  C[commit on feature/*] --> L[lint + unit] --> B[build images] --> E[e2e: official simulator image]
+  E --> G[decision-quality gate<br/>SL ≥ 0.99, 0 failures, 0 overflow] --> M[metrics contract] --> T[Trivy]
+  T -->|tag v*| P[push GHCR :vX :sha<br/>+ GitHub Release] --> D[deploy.sh vX<br/>health gate]
+  D -->|fail| RB[automatic rollback<br/>to last good version]
 ```
 
-## 4. Services, ports, health
+Branches: `feature/*` → `dev` (rebuild + full check) → `main` (always demoable).
 
-| Service | Container name | Port (host:container) | Health endpoint | Depends on |
-|---|---|---|---|---|
-| simulator | fsip-simulator | 8000:8000 | GET /v1/health | |
-| timescaledb (v2, see 20) | fsip-timescaledb | 15432:5432 | `pg_isready` | |
-| redis | fsip-redis | 6379:6379 | `redis-cli ping` | |
-| intelligence | fsip-intelligence | 8200:8200 | GET /health/live, /health/ready | |
-| engine | fsip-engine | 8100:8100 | GET /health/live, /health/ready | simulator, postgres, redis (intelligence optional) |
-| api | (no container_name, see 20) | 18080:8080 | GET /health/live, /health/ready | postgres, redis, engine (soft) |
-| frontend | fsip-frontend | 3000:80 | GET / | api |
-| chaos-proxy | fsip-chaos-proxy | 8001:8001 | GET /health | simulator (only used in the malformed-data drill) |
-| prometheus | fsip-prometheus | 9090:9090 | | |
-| grafana | fsip-grafana | 3001:3000 | | prometheus, loki |
-| loki | fsip-loki | 3100:3100 | | |
-| promtail | fsip-promtail | | | loki |
-| alertmanager | fsip-alertmanager | 9093:9093 | | |
+## 7. Tech
 
-All containers: `restart: unless-stopped`, healthchecks, resource limits (`deploy.resources.limits`), JSON logs,
-and the label `logging=promtail`.
-
-## 5. Environment variables (`.env.example`)
-
-```dotenv
-# --- simulator ---
-SIMULATION_SPEED=0.5
-TICK_MINUTES=15
-SIMULATOR_START_MODE=paused
-SIM_BASE_URL=http://simulator:8000          # engine uses this; chaos drill switches to http://chaos-proxy:8001
-
-# --- engine ---
-ENGINE_MODE=advisory                         # advisory | autopilot
-ENGINE_POLICY=optimizer                      # optimizer | heuristic
-ENGINE_DECISION_INTERVAL_TICKS=1             # run planner at most once per N ticks
-ENGINE_POLL_INTERVAL_SEC=1.0                 # fallback polling when SSE is down
-SIM_TIMEOUT_SEC=2.0
-SIM_MAX_RETRIES=3
-BREAKER_FAILURE_THRESHOLD=5
-BREAKER_RESET_SEC=15
-AUTO_APPROVE_MAX_LITERS=7000                 # autopilot only auto-executes lines <= this
-AUTO_APPROVE_MIN_CONFIDENCE=0.7
-DEPOT_RESERVE_FRACTION=0                     # benchmark: permanent reserves strand fuel; reserve only via supervisor in scarcity
-STATION_TARGET_FILL=0.90
-PLANNING_HORIZON_TICKS=96                    # benchmark: 96 beats 48 after supply ends
-INTELLIGENCE_URL=http://intelligence:8200
-INTELLIGENCE_TIMEOUT_SEC=1.5
-
-# --- shared infra ---
-POSTGRES_USER=fsip
-POSTGRES_PASSWORD=change-me
-POSTGRES_DB=fsip
-DATABASE_URL=postgresql+asyncpg://fsip:change-me@postgres:5432/fsip
-REDIS_URL=redis://redis:6379/0
-
-# --- api ---
-API_OPERATOR_TOKEN=change-me-operator        # required for approve/reject/control actions
-API_RATE_LIMIT_PER_MIN=600
-ENGINE_INTERNAL_URL=http://engine:8100
-ENGINE_INTERNAL_TOKEN=change-me-internal
-
-# --- LLM (optional) ---
-ANTHROPIC_API_KEY=
-LLM_MODEL=claude-haiku-5-5
-LLM_TIMEOUT_SEC=8
-
-# --- observability ---
-GRAFANA_ADMIN_PASSWORD=change-me
-```
-
-## 6. Control loop (engine) at a glance
-
-```
-every new tick (SSE simulation.tick or poll detects tick change):
-  1. SYNC     GET instance, depots, stations, routes, events, supply-arrivals, allocations (parallel)
-              + demand-history (last 3 ticks, only the new rows)
-              validate → if invalid: quarantine, alert, keep last-good, mark DEGRADED
-  2. DETECT   anomaly detectors on new demand rows / inventory deltas / supply status / events
-  3. PREDICT  forecast (intelligence svc → fallback on failure) for 48 ticks ahead
-  4. RISK     projected inventory per (station,fuel) incl. in-flight + scheduled arrivals → stockout ETA + prob
-  5. DECIDE   optimizer (→ heuristic fallback on timeout/error) → candidate allocation lines
-  6. SIMULATE shadow twin: risk before vs after for each recommendation → expected impact
-  7. ACT      autopilot & low-risk → execute; else → recommendation inbox (PENDING_APPROVAL)
-  8. MONITOR  publish snapshot to Redis, write DB rows, update Prometheus metrics, raise/resolve alerts
-  9. RECOVER  breakers/half-open probes, SSE reconnect, outcome tracking of executed allocations
-```
-Coalescing rule: if a cycle is running when new ticks arrive, remember only the latest tick and run one more cycle
-afterwards. Never queue more than one.
-
-## 7. Data flow to the UI
-- engine publishes `fsip:state` (full JSON snapshot) and appends to the stream `fsip:domain-events` (v2) in Redis after each cycle.
-- api exposes `GET /api/state` (from Redis), and `GET /api/stream` (SSE to browsers, fed from Redis pub/sub).
-- If Redis is down: api falls back to reading the last snapshot from Postgres (`world_snapshots`), marks the
-  response `degraded: true`.
+Python 3.12 (FastAPI, httpx, pydantic 2, SQLAlchemy 2 async, PuLP/CBC, numpy), React 18 + TypeScript + Tailwind +
+TanStack Query, TimescaleDB 2.17 (PG16), Redis 7.4, Prometheus 2.55, Alertmanager 0.27, Grafana 11.2, Loki/Promtail 3.2,
+k6 0.54, Docker Compose, GitHub Actions, Trivy, GHCR. All versions pinned.

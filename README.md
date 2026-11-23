@@ -1,188 +1,170 @@
-# 🛢️ Fuel Supply Intelligence & Resilience Platform (FSIP)
+# Fuel Supply Intelligence & Resilience Platform (FSIP)
 
-> **BUP CSE FEST 2026 — Final Hackathon** (powered by Poridhi.io)
+[![ci](https://github.com/ShahriarParib/Bio-Fuel/actions/workflows/ci.yml/badge.svg)](https://github.com/ShahriarParib/Bio-Fuel/actions/workflows/ci.yml)
 
-An intelligent decision-support platform for a simulated Bangladeshi fuel supply network. The system **observes** the network, **detects** risks, **predicts** shortages, **decides/recommends** allocations, **simulates** their impact, **acts** (with human review), **monitors** itself, and **recovers** from domain crises *and* software failures.
+**BUP CSE FEST 2026, Final Hackathon.** A decision-support platform for the organizers' simulated Bangladeshi fuel
+network. It watches the network, predicts shortages, plans shipments under every physical constraint, executes them
+with a human in the loop (or on a guarded autopilot), and keeps working when its own dependencies fail.
 
----
+> SIMULATED ENVIRONMENT. No real fuel infrastructure is accessed or controlled.
 
-## 🏗️ Architecture
+## Results (measured, reproducible)
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        Our Platform                                  │
-│                                                                      │
-│  ┌─────────┐    ┌──────────┐    ┌────────────────┐    ┌───────────┐ │
-│  │ Frontend │◄──►│   API    │◄──►│     Engine      │◄──►│ Simulator │ │
-│  │ React+TS │    │ FastAPI  │    │ Control Loop +  │    │ (Organizer│ │
-│  │ :3000    │    │ :8080    │    │ Decision Engine │    │  Docker)  │ │
-│  └─────────┘    └──┬───┬───┘    │ :8100           │    │  :8000    │ │
-│                     │   │        └───────┬─────────┘    └───────────┘ │
-│               ┌─────┘   └─────┐          │                           │
-│          ┌────▼───┐     ┌─────▼────┐  ┌──▼───────────┐              │
-│          │ Redis  │     │TimescaleDB│  │ Intelligence │              │
-│          │ :6379  │     │  :5432    │  │ Forecast+ML  │              │
-│          └────────┘     └──────────┘  │ :8200        │              │
-│                                        └──────────────┘              │
-└──────────────────────────────────────────────────────────────────────┘
-              ┌─────────────────────────────────────┐
-              │        Observability Stack          │
-              │  Prometheus · Grafana · Loki · k6   │
-              └─────────────────────────────────────┘
-```
+| Question | Answer | Evidence |
+|---|---|---|
+| Does it help? | 3 simulated days: **31 % → 100 %** of demand served (normal), **26 % → 99 %** (crisis: demand spike + supply cut + two routes cut + supply delay + station outage) | [evaluation.md](docs/evidence/evaluation.md) |
+| Does it ever make things worse? | **0 failed shipments and 0 litres lost to overflow** in every scenario and policy | same |
+| When fuel truly runs out, is it fair? | the optimizer lifts the worst-served station from 0.87 to 0.92 (6-day baseline) at equal total service | same |
+| How early does it warn? | first stockout warning **10 h** before the first stockout; forecast error 5.8 % WAPE vs a 4.5-5.8 % noise floor | [journal B3](docs/ENGINEERING_JOURNAL.md) |
+| What if things break? | **11 / 11 failure drills pass**: detected in 0.6-9 s, recovered with no human action in 0-25 s | [resilience.md](docs/evidence/resilience.md) |
+| Can I see it? | 4 Grafana dashboards, 16 alerts, 4 SLOs incl. a **domain SLO (fuel service level ≥ 99 %)** | [observability.md](docs/evidence/observability.md) |
+| Does it hold load? | k6 through nginx, api ×1 vs ×3, spike to 300 VUs; the engine never falls behind | [loadtest-report.md](docs/evidence/loadtest-report.md) |
+| Can it be shipped safely? | CI: tests → e2e on the official simulator image → decision-quality gate → Trivy → GHCR; `deploy.sh` with health gate and **automatic rollback** | [ci.yml](.github/workflows/ci.yml), [runbook](docs/runbook.md) |
 
-### Services
+Every number above comes from a script in this repo run against the official simulator image
+(`asifmahmoud414/bup-fuel-supply-simulator:1.0.0`). The simulator is deterministic, so re-running gives the same
+numbers.
 
-| Service | Purpose | Port |
-|---------|---------|------|
-| **Simulator** | Organizer's fuel network simulation | 8000 |
-| **Engine** | Control loop: sync → detect → predict → decide → act → monitor | 8100 |
-| **Intelligence** | ML forecasting, anomaly detection, model registry | 8200 |
-| **API** | Operator REST + SSE for the frontend | 18080 |
-| **Frontend** | React operator console | 3000 |
-| **TimescaleDB** | Time-series history, decisions, alerts | 15432 |
-| **Redis** | Live state cache, pub/sub, streams | 16379 |
+## Quick start
 
-### Control Loop
-
-```
-Every tick: SYNC → DETECT → PREDICT → RISK → DECIDE → SIMULATE → ACT → MONITOR → RECOVER
-```
-
-## 🚀 Quick Start
+Requirements: Docker with Compose v2.24+ (tested: Docker Engine 29 + Compose v5 in WSL2 Ubuntu 24.04), 6 GB RAM.
 
 ```bash
-# 1. Clone
-git clone git@github.com:ShahriarParib/Bio-Fuel.git
-cd Bio-Fuel
-
-# 2. Configure
-cp .env.example .env
-
-# 3. Run the full stack
-docker compose up -d --build
-
-# 4. Verify
-bash scripts/smoke_test.sh
-# → all services should show OK
-
-# 5. Open the operator console
-open http://localhost:3000
+git clone https://github.com/ShahriarParib/Bio-Fuel.git && cd Bio-Fuel
+cp .env.example .env                 # change the tokens before exposing anything
+docker compose up -d --build         # simulator, engine, intelligence, api, frontend, TimescaleDB, Redis
+bash scripts/smoke_test.sh           # → SMOKE OK
+docker compose --profile obs up -d   # optional: Prometheus, Grafana, Alertmanager, Loki, cAdvisor, node-exporter
 ```
 
-### With Observability (Prometheus + Grafana)
+| URL | What |
+|---|---|
+| http://localhost:3000 | **Operator console** (sign in top right with `API_OPERATOR_TOKEN` from `.env`) |
+| http://localhost:3000/breakglass/latest.html | static dispatch plan that works when everything else is down |
+| http://localhost:18080/api/docs | API (OpenAPI) |
+| http://localhost:13001 | Grafana, folder FSIP (anonymous viewer) |
+| http://localhost:9090 · :9093 | Prometheus · Alertmanager |
+| http://localhost:8000/docs | the organizers' simulator |
 
-```bash
-docker compose --profile obs up -d --build
-# Grafana: http://localhost:13001 (admin / change-me)
+The simulator starts paused. Press **Run** on the Control page (or `curl -X POST localhost:8000/admin/run`).
+
+## What an operator sees
+
+1. **Overview**: service level, live network graph, stock per station, the **Impact Meter** (an exact replay of the
+   same world with nobody acting: litres of stockout prevented).
+2. **Recommendations** in the brief's §9 format: station, projected stockout, the shipment, *stockout risk
+   before → after*. One click shows why, the constraints respected and the alternative. Approve or reject.
+3. **Risk** heatmap (Monte Carlo stockout probability), **Alerts** (explained vs unexplained demand anomalies,
+   scheduled disruptions, platform alerts from Prometheus), **Decisions** audit trail.
+4. **System Health**: every dependency judged from real traffic, the brief §12 *Resilience Contract* live, incident
+   timeline with detect/mitigate/recover times, the domain SLO and its error budget.
+5. **Control** (demo): run/pause/step the simulator, inject the organizers' event types and platform faults, and a
+   checklist of the brief's §23 demo story.
+
+Autopilot (header switch) executes a recommendation only if confidence ≥ 70 %, every line ≤ 7,000 L, the data is fresh
+and the engine is NORMAL. Otherwise it waits for a human.
+
+## How it works
+
+```mermaid
+flowchart LR
+  SIM[(Organizers' simulator<br/>REST + SSE)] -->|poll + SSE, validated| ENG
+  subgraph Platform
+    ENG[Engine<br/>sync · detect · predict · decide · act]
+    INT[Intelligence<br/>forecast service]
+    API[API<br/>stateless, auth, rate limit]
+    UI[Operator console<br/>React]
+    R[(Redis<br/>state, decisions, alerts)]
+    DB[(TimescaleDB<br/>history, audit)]
+  end
+  ENG -->|forecast, 1.5 s timeout| INT
+  ENG -->|only writer: POST /v1/allocations| SIM
+  ENG --> R & DB
+  API --> R
+  API -.->|approve / reject / controls| ENG
+  UI -->|nginx /api| API
+  PROM[Prometheus + Alertmanager] -->|scrape| ENG & API & INT
+  PROM -->|webhook| API
 ```
 
-## 📊 Intelligence Layer
+- **One writer.** Only the engine writes to the simulator, and every shipment passes `decision/constraints.py`: depot
+  stock, per-depot dispatch capacity shared across fuels, route capacity, station capacity *at arrival* including
+  fuel already on the way (p10 demand), and routes disrupted now **or at departure**.
+- **Intelligence.** A structural seasonal forecaster (hour-of-day profile × the simulator's demand multiplier × an
+  adaptive level) with calibrated 80 % intervals; Monte Carlo stockout risk; CUSUM anomaly detection that separates
+  demand explained by a known event from unexplained drift; a rolling-horizon **LP optimizer** (PuLP + CBC) with a
+  heuristic fallback; an exact do-nothing counterfactual for the Impact Meter.
+- **Resilience.** Health judged from real traffic, never from the simulator's `/v1/health` (which ignores injected
+  faults). Mode machine NORMAL / DEGRADED / SAFE_HOLD / NO_FEASIBLE_ROUTES, circuit breakers, last-good state,
+  fallback forecaster, buffered history writes, idempotency keys, break-glass page.
+- **Stateless API.** Reads what the engine publishes to Redis (ETag/304), so API load never reaches the engine.
 
-| Capability | Method | Purpose |
-|------------|--------|---------|
-| **Forecasting** | Seasonal profile + LightGBM | Predict demand 48 ticks ahead |
-| **Risk Scoring** | Monte Carlo (N=300) | Stockout probability + ETA per station/fuel |
-| **Anomaly Detection** | CUSUM + conformal | Demand shifts, inventory variance, supply delays |
-| **Decision Engine** | LP optimizer (PuLP/CBC) | Optimal allocation with zero waste |
-| **Shadow Twin** | Lightweight sim replica | What-if impact estimation |
-| **Fallback** | Greedy heuristic | Auto-activates when intelligence service is down |
+Details: [docs/architecture.md](docs/architecture.md). The full engineering story, including every bug the drills
+found: [docs/ENGINEERING_JOURNAL.md](docs/ENGINEERING_JOURNAL.md).
 
-### Key Results (measured against real simulator)
+## Things we found that change the design
 
-- **Service Level ≥ 0.99** over 3 simulated days (baseline)
-- **0 allocation failures, 0 overflow waste**
-- LP optimizer beats greedy by **+2.9 to +8.1 pts** for worst-station service level after supply ends
-- Scarcity-aware cross-region balancing for extended scenarios
+Measured on the simulator image, each with a test or a drill (details in the journal):
 
-## 🛡️ Resilience
+- `/v1/health` stays "ok" while every real call fails under fault injection, so health must come from real traffic.
+- A shipment created when a route disruption starts at its departure tick is **lost** (FAILED, no refund); a
+  disruption that starts mid-transit has no effect. So the planner checks the route at departure, not "now".
+- Arrival overflow is silently lost and the simulator's capacity check ignores fuel already in transit. So the planner
+  projects inventory at arrival, in-flight fuel included, using pessimistic (p10) demand.
+- Dispatch capacity is per depot per tick **across all fuels**; supply arrivals end at tick 212; a closed station sells
+  nothing but its inventory does not fall; the `stream_disconnect` fault only refuses new SSE connections.
+- Our own drills found and fixed: a degraded flag that silently disabled autopilot after any outage, a circuit
+  breaker that treated a flaky dependency as dead, a dead Redis starving DNS for healthy dependencies, and an
+  error-budget policy that switched off the remedy (service level 99 % → 81 %).
 
-The platform handles **every** failure mode the organizers can inject:
-
-| Fault | Response | Recovery |
-|-------|----------|----------|
-| Simulator unavailable | Circuit breaker → cached state → SAFE_HOLD | Auto half-open probe |
-| High error rate | Retry with backoff + jitter | Breaker resets after 15s |
-| High latency | 2s timeout, 3 retries | Degraded mode on screen |
-| Stale data | Detect `x-simulator-stale` header | DATA_QUALITY alert |
-| SSE disconnect | Auto-reconnect + poll fallback | Seamless switch |
-| Intelligence down | Fallback seasonal forecaster | Heuristic allocator |
-| DB down | Redis-only degraded mode | Auto-reconnect |
-
-**Chaos scripts** in `scripts/chaos/` reproduce each scenario.
-
-## 📈 Observability
-
-- **Prometheus** metrics on every service (`/metrics`)
-- **Grafana** dashboards: service health, domain KPIs, intelligence performance, SLOs
-- **Structured JSON logging** (structlog) → Loki via Promtail
-- **Alert rules**: target down, high error rate, service level drop, stockout risk
-- **k6 load testing** with p50/p95/p99 latency reports
-
-## 🧪 Testing
-
-```bash
-# Python unit tests
-make test
-
-# Frontend tests
-make fe-test
-
-# Lint
-make lint
-
-# Full compose + smoke
-make up && make smoke
-```
-
-## 📁 Project Structure
+## DevOps
 
 ```
-fuel-platform/
-├── docker-compose.yml          # Full stack
-├── Makefile                    # Developer commands
-├── .env.example                # Configuration template
-├── libs/fsip_common/           # Shared Python models & utilities
-├── services/
-│   ├── engine/                 # Control loop + decision engine
-│   ├── intelligence/           # ML forecasting + anomaly detection
-│   └── api/                    # Operator REST + SSE API
-├── frontend/                   # React + TypeScript + Tailwind
-├── observability/              # Prometheus, Grafana, Loki configs
-├── evaluation/                 # Policy comparison harness
-├── loadtest/                   # k6 performance tests
-├── scripts/                    # Chaos, demo, smoke test scripts
-└── docs/                       # Architecture, evidence, demo runbook
+push → lint + unit (Python, TypeScript) → build images → e2e on the official simulator image → smoke
+     → decision-quality gate (SL ≥ 0.99, 0 failed shipments, 0 overflow) → metrics contract → Trivy
+tag v* → the same images pushed to GHCR (:vX.Y.Z, :sha) → GitHub Release with the evidence reports
+deploy → scripts/deploy.sh vX.Y.Z → health gate (version, readiness, smoke) → automatic rollback on failure
 ```
 
-## 🎯 Judging Criteria Coverage
+Branches: every change goes `feature/*` → `dev` (full check) → `main` (always demoable).
 
-| Criterion | Weight | Our Approach |
-|-----------|--------|-------------|
-| Working Product & UX | 20% | Polished operator console with live data, risk board, recommendation inbox |
-| Intelligence & Decision Quality | 20% | Forecast + Monte Carlo risk + LP optimizer + measured comparison |
-| Architecture & Integration | 15% | Clean microservices, resilient simulator client, idempotent writes |
-| DevOps & Engineering Quality | 15% | Docker Compose, CI/CD, automated tests, versioned images |
-| Resilience & Incident Response | 15% | Full failure matrix, circuit breakers, fallback chain, chaos scripts |
-| Observability & Performance | 10% | Prometheus + Grafana + Loki + k6 load test report |
-| Demo & Problem Understanding | 5% | 14-step scripted demo with crisis scenarios |
+| Task | Command |
+|---|---|
+| unit tests · lint | `make test` · `make lint` |
+| all resilience drills (~15 min) | `make chaos` → `docs/evidence/resilience.md` |
+| policy evaluation matrix (~35 min) | `.venv/bin/python evaluation/harness.py --matrix` |
+| load test (~8 min, needs `make obs-up`) | `bash loadtest/run_loadtest.sh` |
+| metric contract | `bash scripts/check_metrics.sh` |
+| release locally · deploy · rollback demo | `scripts/release_local.sh v1.0.0` · `scripts/deploy.sh v1.0.0 --local` · `scripts/demo/make_bad_release.sh v0.9.9-bad v1.0.0 && scripts/deploy.sh v0.9.9-bad --local` |
 
-## 🔑 Key Design Decisions
+## Brief deliverables → where
 
-1. **REST as truth, SSE as hint** — engine polls REST for verified state, SSE only triggers faster cycles
-2. **Single writer** — only the engine writes to the simulator (no distributed locking)
-3. **Zero waste** — projected inventory accounting includes in-flight shipments, prevents overflow
-4. **Human in the loop** — recommendations require approval; autopilot only for low-risk routine top-ups
-5. **Layered fallbacks** — every component has a degraded mode that keeps operations running
+| Brief §20 | Where |
+|---|---|
+| Working application | `docker compose up -d --build`, console at :3000 |
+| Source repository | this repo; history follows feature → dev → main |
+| Simulator integration | `services/engine/app/sim/` (client, breaker, SSE, validation), `state/sync.py` |
+| Intelligence component | `libs/fsip_common/fsip_common/forecast_seasonal.py`, `services/engine/app/{risk,decision,intelligence}/` |
+| Operator interface | `frontend/` |
+| Architecture | [docs/architecture.md](docs/architecture.md) |
+| Deployment | `docker-compose.yml`, [ci.yml](.github/workflows/ci.yml), `scripts/deploy.sh`, [runbook](docs/runbook.md) |
+| Observability evidence | [observability.md](docs/evidence/observability.md) |
+| Resilience demonstration | [resilience.md](docs/evidence/resilience.md), `scripts/chaos/` |
+| Load-test evidence | [loadtest-report.md](docs/evidence/loadtest-report.md), `loadtest/` |
+| Decisions and deviations | [assumptions.md](docs/assumptions.md), [ENGINEERING_JOURNAL.md](docs/ENGINEERING_JOURNAL.md) |
 
-## 👥 Team
+## Repository
 
-| Name | GitHub |
-|------|--------|
-| Shahriar Parib | [@ShahriarParib](https://github.com/ShahriarParib) |
-
-## 📜 License
-
-This project was built for the BUP CSE FEST 2026 Hackathon. All simulator interactions use the organizer-provided Docker image (`asifmahmoud414/bup-fuel-supply-simulator:1.0.0`).
-
-> **SIMULATED ENVIRONMENT — NOT REAL FUEL INFRASTRUCTURE**
+```
+services/engine        control loop: sync, intelligence pipeline, decision engine, health monitor, SLO
+services/intelligence  forecast service (the engine has a built-in fallback)
+services/api           operator API: auth, rate limit, SSE, Alertmanager webhook, demo controls
+libs/fsip_common       shared models, forecaster, Redis guard
+frontend               React + TypeScript + Tailwind console (nginx serves it and proxies /api)
+chaos-proxy            corrupts simulator payloads for the malformed-data drill
+observability          Prometheus rules (alerts, SLOs), Alertmanager, Loki, Promtail, Grafana dashboards (generated)
+evaluation             policy evaluation harness and the e2e autopilot test
+scripts                smoke, deploy, chaos drills, metric contract, demo helpers
+loadtest               k6 scenarios and the report generator
+docs                   architecture, runbook, journal, assumptions, evidence
+```
