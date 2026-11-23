@@ -38,7 +38,8 @@ Deadline: **Thu 2026-11-26**. Feature freeze: Wed 2026-11-25 18:00.
 | Block | Status | Evidence |
 |---|---|---|
 | B1 Make it real | DONE 2026-11-23 | stack up + `SMOKE OK` (overall Healthy); 49 unit tests pass; ruff clean; fixtures captured; semantics below; benchmark reproduced |
-| B2-B8 | TODO | |
+| B2 Decide & act | DONE 2026-11-23 | e2e autopilot 192 ticks: SL 1.0, unmet 0, failures 0, overflow 0 L (52 allocations, 21.6 s); approve/reject via api + audit; route cut at t+1 → 0 FAILED, cross-region route used; 26 engine + 5 auth tests incl. hypothesis property |
+| B3-B8 | TODO | |
 
 ## Verified simulator semantics (verified 2026-11-23 against image 1.0.0, script: plan folder reference/verify_semantics.py)
 - Arrival timing (created T, transit k): PENDING at T; IN_TRANSIT at instance tick T+1 with departure_tick = T,

@@ -262,6 +262,42 @@ async def create_decision(
     return dec
 
 
+def idempotency_key(sim_run_id: int, decision_id: int, line_no: int) -> str:
+    """`fsip-{sim_run_id}-{decision_id}-{line_no}` (20 §6). Unique across engine restarts and simulator resets."""
+    return f"fsip-{sim_run_id}-{decision_id}-{line_no}"
+
+
+async def create_decision_with_lines(
+    session: AsyncSession,
+    decision_data: dict[str, Any],
+    lines_data: list[dict[str, Any]],
+) -> tuple[int, list[tuple[int, str]]]:
+    """Insert a decision and its lines in one transaction; returns (decision_id, [(line_id, idempotency_key)])."""
+    dec = Decision(**decision_data)
+    session.add(dec)
+    await session.flush()
+    rows: list[DecisionLine] = []
+    for idx, ld in enumerate(lines_data, start=1):
+        row = DecisionLine(decision_id=dec.id, line_no=idx,
+                           idempotency_key=idempotency_key(dec.sim_run_id, dec.id, idx), **ld)
+        session.add(row)
+        rows.append(row)
+    await session.flush()
+    out = [(r.id, r.idempotency_key) for r in rows]
+    await session.commit()
+    return dec.id, out
+
+
+async def update_decision(session: AsyncSession, decision_id: int, **values: Any) -> None:
+    await session.execute(update(Decision).where(Decision.id == decision_id).values(**values))
+    await session.commit()
+
+
+async def update_line(session: AsyncSession, line_id: int, **values: Any) -> None:
+    await session.execute(update(DecisionLine).where(DecisionLine.id == line_id).values(**values))
+    await session.commit()
+
+
 async def insert_incident(
     session: AsyncSession,
     kind: str,

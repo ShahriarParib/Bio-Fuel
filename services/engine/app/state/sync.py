@@ -79,7 +79,9 @@ class SyncLoop:
                 inst_res = await self.client.instance()
                 if isinstance(inst_res, SimResult) and inst_res.data:
                     current_tick = inst_res.data.get("tick", 0)
-                    if current_tick > self._last_processed_tick or self._last_processed_tick == -1:
+                    # `!=` not `>`: after /admin/reset the tick goes BACK to 0; with a paused simulator no new tick
+                    # would ever arrive, so the reset (new run, cleared state) would never be noticed.
+                    if current_tick != self._last_processed_tick:
                         await self.request_cycle(current_tick)
             except asyncio.CancelledError:
                 break

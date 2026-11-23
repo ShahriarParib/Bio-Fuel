@@ -5,15 +5,18 @@ import asyncio
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi.responses import JSONResponse
 from fsip_common.logging import configure_logging, get_logger
 from prometheus_client import Counter, Gauge, make_asgi_app
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import EngineSettings, get_settings
 from .db import repo
 from .db.buffer import WriteBuffer
 from .db.session import get_sessionmaker, init_db
+from .decision.engine import DecisionEngine, DecisionError
 from .sim.circuit import CircuitBreaker
 from .sim.client import SimClient
 from .sim.sse import SSEListener
@@ -178,6 +181,16 @@ async def lifespan(app: FastAPI):
 
         hooks.append(_hook_persist_db)
 
+    # Hook 0 (runs first, so the published state already contains the new recommendations): decide → act
+    decision_engine = DecisionEngine(
+        store, sim_client, publisher, get_sessionmaker,
+        ttl_ticks=s.decision_ttl_ticks, interval_ticks=s.engine_decision_interval_ticks,
+        auto_max_line=s.auto_approve_max_liters, auto_min_confidence=s.auto_approve_min_confidence,
+        reserve_fraction=s.depot_reserve_fraction,
+    )
+    hooks.insert(0, decision_engine.on_cycle)
+    app.state.decision_engine = decision_engine
+
     # 6. Initialize Synchronization Loop and SSE Listener
     sync_loop = SyncLoop(
         client=sim_client,
@@ -191,6 +204,8 @@ async def lifespan(app: FastAPI):
         base_url=s.sim_base_url,
         on_tick=lambda t: sync_loop.request_cycle(t),
         on_connect=lambda: sync_loop.full_sync(),
+        # "Simulation reset" (or any notice) → resync now instead of waiting for the next poll
+        on_notice=lambda _notice: sync_loop.full_sync(),
     )
 
     # Attach components to app state
@@ -261,6 +276,9 @@ async def ready():
         return {
             "status": "ready",
             "tick": store.last_tick,
+            "decision_tick": app.state.decision_engine.last_cycle_tick,
+            "operating_mode": store.operating_mode,
+            "sim_run_id": store.sim_run_id,
             "degraded": store.degraded,
             "stale": store.stale,
             "last_sync_age_sec": round(last_sync_age, 2),
@@ -298,3 +316,80 @@ async def debug_sync():
     await sync_loop.full_sync()
     store: WorldState = app.state.store
     return {"status": "sync_triggered", "tick": store.last_tick}
+
+
+# ---------------------------------------------------------------- decisions (internal; the api forwards operator calls)
+class ApproveBody(BaseModel):
+    actor: str = Field(min_length=1, max_length=64)
+    role: str = "operator"
+    line_ids: list[int] | None = None
+    quantities: dict[str, float] | None = None
+    reviewed_driver: bool = False
+
+
+class RejectBody(BaseModel):
+    actor: str = Field(min_length=1, max_length=64)
+    reason_code: str = Field(
+        default="OTHER", pattern="^(WRONG_PRIORITY|DATA_LOOKS_WRONG|PREFER_OTHER_ROUTE|NOT_NEEDED|OTHER)$"
+    )
+    comment: str = Field(default="", max_length=500)
+
+
+class ActorBody(BaseModel):
+    actor: str = Field(min_length=1, max_length=64)
+
+
+class ModeBody(ActorBody):
+    mode: str
+
+
+class PolicyBody(ActorBody):
+    policy: str
+
+
+def _engine() -> DecisionEngine:
+    return app.state.decision_engine
+
+
+@app.exception_handler(DecisionError)
+async def _decision_error(_request, err: DecisionError):
+    return JSONResponse(status_code=err.status,
+                        content={"detail": {"code": err.code, "message": err.message, "data": err.data}})
+
+
+@app.get("/internal/decisions", dependencies=[Depends(require_internal)])
+async def list_decisions(status: str | None = None, limit: int = Query(50, ge=1, le=200)):
+    items = list(reversed(_engine().decisions.values()))
+    if status:
+        items = [d for d in items if d["status"] in status.split(",")]
+    return {"items": items[:limit], "total": len(items)}
+
+
+@app.get("/internal/decisions/{decision_id}", dependencies=[Depends(require_internal)])
+async def get_decision(decision_id: int):
+    return _engine().get(decision_id)
+
+
+@app.post("/internal/decisions/{decision_id}/approve", dependencies=[Depends(require_internal)])
+async def approve_decision(decision_id: int, body: ApproveBody):
+    return await _engine().approve(decision_id, body.actor, body.line_ids, body.quantities)
+
+
+@app.post("/internal/decisions/{decision_id}/reject", dependencies=[Depends(require_internal)])
+async def reject_decision(decision_id: int, body: RejectBody):
+    return await _engine().reject(decision_id, body.actor, body.reason_code, body.comment)
+
+
+@app.post("/internal/plan-now", status_code=202, dependencies=[Depends(require_internal)])
+async def plan_now(body: ActorBody):
+    return await _engine().plan_now(body.actor)
+
+
+@app.post("/internal/mode", dependencies=[Depends(require_internal)])
+async def set_mode(body: ModeBody):
+    return await _engine().set_mode(body.actor, body.mode)
+
+
+@app.post("/internal/policy", dependencies=[Depends(require_internal)])
+async def set_policy(body: PolicyBody):
+    return await _engine().set_policy(body.actor, body.policy)

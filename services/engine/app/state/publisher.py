@@ -92,6 +92,18 @@ class Publisher:
             REDIS_ERRORS_TOTAL.labels(operation="publish_state").inc()
             log.warning("redis.publish_state_error", error=str(err), error_type=type(err).__name__)
 
+    async def set_json(self, key: str, value: Any) -> bool:
+        """Cache a JSON document (e.g. `fsip:decisions`) so the stateless api can serve it without the engine."""
+        if not self._redis:
+            return False
+        try:
+            await self._redis.set(key, json.dumps(value, default=str))
+            return True
+        except Exception as err:
+            REDIS_ERRORS_TOTAL.labels(operation="set_json").inc()
+            log.warning("redis.set_json_error", key=key, error=str(err))
+            return False
+
     async def event(self, event_type: str, data: dict[str, Any]) -> str | None:
         """Append a custom domain event to the Redis Stream."""
         if not self._redis:

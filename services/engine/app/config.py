@@ -7,6 +7,7 @@ class EngineSettings(BaseServiceSettings):
     engine_mode: str = "advisory"            # advisory | autopilot
     engine_policy: str = "optimizer"         # optimizer | heuristic
     engine_decision_interval_ticks: int = 1
+    decision_ttl_ticks: int = 8              # how long a recommendation waits for a human (2 sim hours)
     engine_poll_interval_sec: float = 1.0
     sim_timeout_sec: float = 2.0
     sim_max_retries: int = 3

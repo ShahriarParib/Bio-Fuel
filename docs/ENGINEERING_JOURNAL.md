@@ -100,6 +100,44 @@ Nothing here describes real fuel infrastructure.
 - **Judging criterion:** Architecture & Integration, DevOps & Engineering Quality, Resilience.
 - **Demo line:** "Restart our engine mid-run and it resumes the same run: no duplicate or lost shipments."
 
+### B2: Decide & act (2026-11-23, night)
+- **Goal:** the first complete Decide → Act loop: recommendations an operator can approve, an autopilot that is only
+  allowed to act when it is safe, and every outcome tracked back from the simulator.
+- **What we built:**
+  - `services/engine/app/decision/planning.py`: a pure planning view of the world (no I/O) with projection maths that
+    follow the measured timing (fuel lands at tick t+k+1, demand of t..t+k−1 is consumed first).
+  - `decision/constraints.py`: one feasibility check shared by every policy and every human edit. Besides the obvious
+    rules it encodes three simulator behaviours we measured: a route disruption that starts at the departure step
+    destroys the shipment (no refund), the dispatch cap is shared by all fuels of a depot within a tick, and fuel above
+    capacity on arrival is lost while the simulator's own check ignores fuel already on the road.
+  - `decision/heuristic.py`: greedy policy (most urgent station first, shortest safe route, fill to 90% on the median
+    demand path, never above 98% on the low-demand path).
+  - `decision/executor.py`: idempotent submission (`fsip-{run}-{decision}-{line}`; a retry after a timeout can never
+    create a second shipment) and a mapping of every simulator answer to a line status.
+  - `decision/engine.py`: plan each tick, record the decision with its reasons, autopilot gate (confidence ≥ 0.7, every
+    line ≤ 7,000 L, fresh data, engine NORMAL), approval with re-validation on fresh data, reject, plan-now, mode and
+    policy switches, outcome tracking (PENDING → IN_TRANSIT → ARRIVED/FAILED), audit log, Redis publication.
+  - api: `/api/recommendations`, `/api/decisions`, approve/reject, `/api/plan-now`, `/api/control/mode|policy`,
+    `/api/audit`. Removed hard-coded `operator`/`supervisor` tokens: only environment tokens, constant-time compare.
+  - `evaluation/e2e_autopilot.py`: end-to-end quality check against the running stack using the simulator's own
+    ground truth (service level, failures, overflow from its audit log). It becomes the CI quality gate in B8.
+- **Why this approach:** a greedy policy already reaches 100% service while supply flows (measured during planning),
+  so the value here is *never wasting fuel* and *keeping a human in control*. Every policy and every manual edit goes
+  through the same constraint check; that is what makes "0 litres destroyed" a guarantee rather than luck.
+- **Problems hit → fix:** the end-to-end test exposed that a simulator reset was never noticed while the simulator was
+  paused (the poll only reacted to a *higher* tick); fixed, and reset notices from the event stream now trigger an
+  immediate resync. WSL shut its VM (and every container) down after a minute without a terminal; fixed with
+  `vmIdleTimeout=-1`. A 2-tick recommendation lifetime is 4 seconds at demo speed, so recommendations now live 8 ticks
+  and are re-validated (trimmed or dropped) at approval.
+- **Evidence:** autopilot, 192 ticks: service level **1.0**, unmet **0 L**, failed allocations **0**, overflow **0 L**
+  (52 allocations, 201,810 L). Route cut injected for the next tick: 0 failures, the engine switched to the
+  cross-region route. Approve/reject through the api with the actor in the audit log; approving twice → 409.
+  Tests: 26 engine (incl. a hypothesis property test: any inventory, any demand → every planned line is feasible),
+  5 auth.
+- **Judging criterion:** Intelligence & Decision Quality, Working Product, Resilience, Security hygiene.
+- **Demo line:** "Cut a route one tick before departure: the platform never ships into it, because that fuel would
+  be destroyed. It reroutes across regions instead."
+
 <!-- New entries go here, one per block (B1-B8, E1-E9). Copy the template below. -->
 
 ## 5. What we discovered about the simulator

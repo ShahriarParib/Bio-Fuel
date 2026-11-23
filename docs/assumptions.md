@@ -38,3 +38,9 @@ Copy this into the repo as `docs/decisions.md` + `docs/assumptions.md` in phase 
 ## Deviations log (the executing AI appends here)
 | Date | Phase | Spec said | We did | Why |
 |---|---|---|---|---|
+| 2026-11-23 | B1 | sim_run id from a counter | `sim_runs` row resumed on engine restart, new on reset | counter restarted at 1 after a crash → idempotency key collisions |
+| 2026-11-23 | B2 | recommendation expires at t+2 | `DECISION_TTL_TICKS` (default 8 = 2 sim h) + re-validation at approval (capacity-type violations trimmed, others dropped) | 2 ticks = 4 s at demo speed 0.5: no human can approve that fast |
+| 2026-11-23 | B2 | new plan supersedes older pending | one open recommendation per (station, fuel); the planner skips keys already waiting for approval | superseding every tick would make an operator chase a moving target; skipping prevents double shipments |
+| 2026-11-23 | B2 | disruption check at t+1 | blocked if a non-resolved disruption overlaps [t, t+1] | order of event activation vs departure inside a step is undocumented; one tick of margin is cheap |
+| 2026-11-23 | B2 | api reads decisions from DB | api reads the engine's Redis document `fsip:decisions` (falls back to the engine) | history stays visible when the engine is down; reads scale with api replicas; no cross-service imports |
+| 2026-11-23 | B2 | tokens `operator`/`supervisor` accepted in code | only `API_OPERATOR_TOKEN` / `API_SUPERVISOR_TOKEN` from the environment, constant-time compare | brief §19: no hard-coded credentials |
