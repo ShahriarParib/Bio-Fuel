@@ -237,6 +237,22 @@ Nothing here describes real fuel infrastructure.
 - **Judging criterion:** observability, resilience, DevOps maturity, honesty of evidence.
 - **Demo line:** "Our SLO is about fuel reaching people, not just HTTP 200s. And when the budget is spent we freeze changes, not the trucks."
 
+### B8: Ship: CI/CD with a decision-quality gate, deploy with automatic rollback, load test (2026-11-24)
+- **Goal:** the brief's §13 chain (Source → Build → Test → Package → Deploy → Health Check → Running) as real, measured automation, plus load-test evidence.
+- **What we built:** `.github/workflows/ci.yml` (lint + unit for Python and TypeScript → images built once → e2e with the **official simulator image** → smoke → **decision-quality gate**: harness baseline 96 ticks for both policies, SL ≥ 0.99, 0 failed shipments, 0 overflow → metrics contract → **Trivy** (fail on fixable CRITICAL) → on `v*` tags the *same* images pushed to GHCR (`:vX.Y.Z`, `:sha`) and a GitHub Release with the evidence reports); `scripts/deploy.sh` (resolve images → roll out app services only → health gate: containers running, crash-loop fast fail, api reports the new version, engine ready, system not Down, smoke → record or **automatic rollback** to the last good version), `scripts/release_local.sh`, `scripts/demo/make_bad_release.sh`; k6 scenarios (`loadtest/k6/`) + runner + report generator; README, architecture (Mermaid), runbook.
+- **How / approach:** the gate that matters for this product is decision quality, not only "tests pass": a change that makes the planner ship less, fail a shipment or overflow a tank cannot merge. Images are built once and promoted (what was tested is what ships). Deploy touches only the app services; data stores and the simulator keep running.
+- **Tools:** GitHub Actions, buildx, Trivy 0.57, GHCR, softprops/action-gh-release, k6 0.54, jq.
+- **Evidence:** CI run green on e2e + both decision gates; rollback demo: `v1.0.0-rc1` deployed (gate 9 s) → `v0.9.9-bad` (api exits on boot) rejected → rolled back, healthy in 9 s, history `deploy/versions.env`; `docs/evidence/loadtest-report.md`: api ×3 holds 2-4× the load of ×1 at the same latency, spike 10 → 300 VUs p95 17.7 ms with 0 errors, rate limit returns 429 + Retry-After and never 5xx, engine 0 ticks behind in every run.
+- **Problems hit → fix:**
+  1. **Trivy failed the first pipeline** (the gate working): `python-jose` 3.3.0 (CVE-2024-33663) in the api, never imported → removed; OpenSSL/brotli CVEs in the pinned nginx Alpine base → `apk upgrade` in the image.
+  2. **The load test found the api's limits** (knee at 50 VUs per 0.5-CPU replica, 1.5 % errors at 200 VUs). Hot path rewritten: content-hash ETag checked before reading the document, cached bytes returned as is, one-round-trip rate limiter. Spike p95 96.8 → 17.7 ms, errors at 200 VUs 1.5 % → 0; the knee itself did not move (fixed per-request cost on 0.5 CPU), scaling out does.
+  3. **A correctness bug hiding in the ETag:** `run-tick` ETags let browsers revalidate to 304 while mode/health changed within a tick, so the console could miss SAFE_HOLD during an outage. Content hash + test.
+  4. The rate limiter trusted the leftmost `X-Forwarded-For` entry (client-forgeable) → rightmost (set by our nginx); 429s now carry `Retry-After`.
+  5. `.env` set `APP_VERSION=dev` inside every container, so a deploy could not prove which version runs → compose passes the deployed version explicitly; the gate checks it.
+  6. The api's Postgres fallback imported engine code that is not in the api image (always failed) → removed; Redis down → engine directly.
+- **Judging criterion:** DevOps (delivery workflow, rollback, security scan), load testing, architecture, documentation.
+- **Demo line:** "This release breaks the API. Watch: the deploy notices in seconds and puts the last good version back, and you never see it."
+
 <!-- New entries go here, one per block (B1-B8, E1-E9). Copy the template below. -->
 
 ## 5. What we discovered about the simulator
@@ -246,16 +262,16 @@ Nothing here describes real fuel infrastructure.
 
 | Brief § | Deliverable | Where | Status |
 |---|---|---|---|
-| 20.1 | Working application | `docker compose up -d --build` | in progress |
-| 20.2 | Source repository | this repo + README | in progress |
+| 20.1 | Working application | `docker compose up -d --build` | done |
+| 20.2 | Source repository | this repo + README | done |
 | 20.3 | Simulator integration | `services/engine/app/sim/` | done (P01) |
 | 20.4 | Intelligence component | forecast, risk, LP, twin | done (B3, B5) |
 | 20.5 | Operator interface | `frontend/` | done (B4) |
-| 20.6 | Architecture diagram | `docs/architecture.md` | in progress |
-| 20.7 | Deployment | Compose, CI/CD, `scripts/deploy.sh` | planned (B8) |
+| 20.6 | Architecture diagram | `docs/architecture.md` | done (B8) |
+| 20.7 | Deployment | Compose, CI/CD, `scripts/deploy.sh` | done (B8) |
 | 20.8 | Observability evidence | `docs/evidence/observability.md` | done (B7) |
 | 20.9 | Resilience demonstration | `docs/evidence/resilience.md` | done (B6) |
-| 20.10 | Load-test evidence | `docs/evidence/loadtest-report.md` | planned (B8) |
+| 20.10 | Load-test evidence | `docs/evidence/loadtest-report.md` | done (B8) |
 | 20.11 | Final demo | `docs/demo-runbook.md` | planned |
 
 ## 7. Questions we expect, and our answers

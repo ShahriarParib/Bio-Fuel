@@ -106,6 +106,9 @@ app.include_router(alerts.router)
 app.include_router(system.router)
 
 
+_RATE_LUA = "local c = redis.call('INCR', KEYS[1]) if c == 1 then redis.call('EXPIRE', KEYS[1], 60) end return c"
+
+
 @app.middleware("http")
 async def rate_limit_and_metrics_middleware(request: Request, call_next):
     """Enforce rate limits and track Prometheus and rolling window metrics."""
@@ -121,21 +124,18 @@ async def rate_limit_and_metrics_middleware(request: Request, call_next):
     path = request.url.path
     if not (path.startswith("/health") or path.startswith("/metrics") or path.startswith("/api/docs")):
         is_limited = False
+        redis_ok = False
         redis_client = getattr(request.app.state, "redis", None)
         if redis_client:
             try:
-                key = f"fsip:ratelimit:{client_ip}"
-                current = await redis_client.incr(key)
-                if current == 1:
-                    await redis_client.expire(key, 60)
-                if current > settings.api_rate_limit_per_min:
-                    is_limited = True
+                # one round trip (INCR + first-hit EXPIRE in Lua); shared by every api replica
+                current = await redis_client.eval(_RATE_LUA, 1, f"fsip:ratelimit:{client_ip}")
+                is_limited = int(current) > settings.api_rate_limit_per_min
+                redis_ok = True
             except Exception:
-                # Redis failure -> fall back to memory
-                pass
+                pass  # Redis down: per-replica in-memory limit below
 
-        if not is_limited:
-            # Memory check fallback
+        if not redis_ok:
             bucket = _rate_limit_buckets[client_ip]
             while bucket and now - bucket[0] > 60.0:
                 bucket.popleft()
@@ -153,6 +153,7 @@ async def rate_limit_and_metrics_middleware(request: Request, call_next):
                         "message": f"Rate limit of {settings.api_rate_limit_per_min} req/min exceeded",
                     }
                 },
+                headers={"Retry-After": "60"},  # fixed 60 s window: tell well-behaved clients when to come back
             )
 
     t0 = time.perf_counter()

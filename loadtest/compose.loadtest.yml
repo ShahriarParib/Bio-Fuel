@@ -1,0 +1,7 @@
+# Load-test overlay: api scalable (no fixed host port) and the per-client rate limit lifted, because k6 is ONE client
+# IP. ratelimit.js runs WITHOUT this overlay to prove the limit itself.
+services:
+  api:
+    ports: !reset []
+    environment:
+      API_RATE_LIMIT_PER_MIN: "10000000"

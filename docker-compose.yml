@@ -3,6 +3,9 @@ name: fsip
 x-py-service: &py-service
   restart: unless-stopped
   env_file: .env
+  environment:
+    # beats env_file: the running version must be the deployed image's version (scripts/deploy.sh checks it)
+    APP_VERSION: ${APP_VERSION:-dev}
   labels:
     logging: promtail
   logging:
