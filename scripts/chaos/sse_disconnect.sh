@@ -8,6 +8,7 @@ fault stream_disconnect "$DUR"
 t0=$(now)
 docker restart fsip-engine >/dev/null
 det=$(wait_until '.components.live_stream.status == "Degraded"' 40)
+wait_until '.data_tick != null and .data_tick > 0' 30 >/dev/null   # the engine just restarted: wait for its first sync
 tick0=$(st '.data_tick'); sleep 8; tick1=$(st '.data_tick')
 wait_fault_end "$t0" "$DUR"
 rec=$(wait_until "$healthy" 90)
