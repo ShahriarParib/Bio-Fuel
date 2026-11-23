@@ -1,4 +1,4 @@
-"""Break-glass plan (06 F-BREAKGLASS): a static HTML + CSV the operator can open when api/engine/UI are down.
+"""Break-glass plan: a static HTML + CSV the operator can open when api/engine/UI are down.
 
 Written by the engine every few ticks into a volume that nginx serves at /breakglass/latest.html. Plain HTML, no
 JavaScript, no dependency on any of our services: if everything else is broken, this page still opens.

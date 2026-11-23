@@ -16,4 +16,3 @@ class BaseServiceSettings(BaseSettings):
     engine_internal_token: str = "change-me-internal"
     database_url: str = "postgresql+asyncpg://fsip:change-me@timescaledb:5432/fsip"
     redis_url: str = "redis://redis:6379/0"
-    otel_enabled: bool = False

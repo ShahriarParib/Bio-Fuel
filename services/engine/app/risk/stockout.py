@@ -1,4 +1,4 @@
-"""Stockout risk: Monte Carlo over forecast uncertainty (reference/blueprints/analytics.py, self-tested).
+"""Stockout risk: Monte Carlo over forecast uncertainty.
 
 For each (station, fuel): 300 demand paths from the p10/p50/p90 forecast (asymmetric normal per tick + a shared level
 shock, so errors are correlated in time like real demand), our in-flight arrivals, and outage windows (demand at an

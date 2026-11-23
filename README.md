@@ -61,6 +61,14 @@ The simulator starts paused. Press **Run** on the Control page (or `curl -X POST
 5. **Control** (demo): run/pause/step the simulator, inject the organizers' event types and platform faults, and a
    checklist of the brief's §23 demo story.
 
+| Overview | Recommendation with its reasoning |
+|---|---|
+| ![Overview](docs/evidence/screenshots/b4-overview.png) | ![Recommendation](docs/evidence/screenshots/b4-recommendation-why.png) |
+| **System Health** (resilience contract, incidents, SLO) | **Grafana** during the failure drills |
+| ![System Health](docs/evidence/screenshots/b7-health.png) | ![Grafana](docs/evidence/screenshots/b7-drill-service-health.png) |
+
+More: [screenshots](docs/evidence/screenshots/) (risk heatmap, alerts, decisions after an approval, Control page).
+
 Autopilot (header switch) executes a recommendation only if confidence ≥ 70 %, every line ≤ 7,000 L, the data is fresh
 and the engine is NORMAL. Otherwise it waits for a human.
 

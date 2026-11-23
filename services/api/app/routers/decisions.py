@@ -1,4 +1,4 @@
-"""Recommendations, decisions and operator controls (21 §2.3, §2.5).
+"""Recommendations, decisions and operator controls.
 
 Reads come from the engine's Redis document `fsip:decisions` (so history stays visible when the engine is down and
 reads scale with api replicas). Writes are forwarded to the engine, the only writer to the simulator.

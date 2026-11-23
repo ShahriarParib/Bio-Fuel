@@ -263,7 +263,7 @@ async def create_decision(
 
 
 def idempotency_key(sim_run_id: int, decision_id: int, line_no: int) -> str:
-    """`fsip-{sim_run_id}-{decision_id}-{line_no}` (20 §6). Unique across engine restarts and simulator resets."""
+    """`fsip-{sim_run_id}-{decision_id}-{line_no}`. Unique across engine restarts and simulator resets."""
     return f"fsip-{sim_run_id}-{decision_id}-{line_no}"
 
 

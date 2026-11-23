@@ -1,4 +1,4 @@
-# Shared helpers for the resilience drills (06 §1). Source it; do not run it.
+# Shared helpers for the resilience drills (docs/architecture.md §4). Source it; do not run it.
 # Each drill: inject a real failure -> measure seconds until the platform DETECTS it (from /api/system/status, i.e.
 # what an operator sees) -> check the mitigation -> measure seconds until it RECOVERS on its own -> append one row.
 set -u

@@ -17,12 +17,8 @@ class EngineSettings(BaseServiceSettings):
     auto_approve_max_liters: float = 7000
     auto_approve_min_confidence: float = 0.7
     depot_reserve_fraction: float = 0.0
-    station_target_fill: float = 0.90
     planning_horizon_ticks: int = 96
     safety_ticks: int = 16
-    safety_noise: float = 0.15
-    safety_weight: float = 2.0
-    scarcity_policy: str = "history_based"
     safe_hold_after_sec: float = 60.0         # simulator down this long → SAFE_HOLD
     breakglass_dir: str = "/data/breakglass"
     slo_policy: str = "enforce"               # enforce | observe (evaluation harness)

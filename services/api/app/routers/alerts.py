@@ -1,4 +1,4 @@
-"""Alerts, risk and cover (21 §2.2). Served from Redis documents the engine publishes every cycle."""
+"""Alerts, risk and cover. Served from Redis documents the engine publishes every cycle."""
 from __future__ import annotations
 
 import json

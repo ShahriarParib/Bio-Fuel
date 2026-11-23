@@ -6,7 +6,7 @@ Design choices (logged in docs/assumptions.md):
 - Recommendations live DECISION_TTL_TICKS (default 8 = 2 sim hours) instead of 2 ticks: at demo speed 0.5 tick/s two
   ticks are 4 seconds, too short for a human. Every line is re-validated against fresh data at approval time and
   trimmed (or dropped) if the world moved.
-- Autopilot executes only when the gate passes (20 §5): confidence ≥ 0.7, every line ≤ 7,000 L, data not stale,
+- Autopilot executes only when the gate passes: confidence ≥ 0.7, every line ≤ 7,000 L, data not stale,
   engine NORMAL. Otherwise the decision waits for a human, even in autopilot.
 """
 from __future__ import annotations
@@ -155,7 +155,7 @@ class DecisionEngine:
         lines = [ln for ln in plan.lines if (ln.destination_station_id, ln.fuel_type) not in covered]
         if not lines:
             return None
-        # 05 §4.4 simplified: fresh data + primary model 0.9; fallback forecast 0.6 (< autopilot gate → human review)
+        # confidence: fresh data + primary model 0.9; fallback forecast 0.6 (< autopilot gate → human review)
         confidence = 0.5 if (state.stale or state.degraded) else (0.6 if state.forecast_fallback else 0.9)
         decision = await self._record(state, lines, plan, policy_used, fallback_reason, confidence, trigger)
         if self._autopilot_gate(decision, state):
