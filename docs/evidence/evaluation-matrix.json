@@ -213,7 +213,8 @@
   },
   "decide_ms_p50": 141.55,
   "decide_ms_p95": 259.8,
-  "optimizer_fallbacks": 0
+  "optimizer_fallbacks": 0,
+  "note": "re-run on its own: in the matrix run the engine stalled for most of the run (wall time 3,558 s instead of ~150 s, every station equally short) while the harness kept stepping the simulator. Earlier versions scored 1.0000 here; this one is slightly more cautious on day 1 because the forecast band may not be narrower than \u00b112 % before one full day of history, the price of never losing fuel to overflow (crisis overflow 80 L \u2192 0 L)."
  },
  {
   "scenario": "baseline",
