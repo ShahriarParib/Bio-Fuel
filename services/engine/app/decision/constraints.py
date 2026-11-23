@@ -1,4 +1,4 @@
-"""Shared feasibility rules (05 §4.1). Every policy line and every manual line must pass `check_line`.
+"""Shared feasibility rules (docs/architecture.md §3). Every policy line and every manual line must pass `check_line`.
 
 Rules that exist because of verified simulator behaviour (02_SIMULATOR_FACTS / PROGRESS.md):
 - rule 2: a route disruption that becomes active at the departure step makes the allocation FAIL with no refund.

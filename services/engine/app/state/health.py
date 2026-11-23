@@ -1,4 +1,4 @@
-"""Component health, engine mode machine and incidents (06 §1, brief §12).
+"""Component health, engine mode machine and incidents (brief §12; docs/architecture.md §2, §4).
 
 Health is measured from REAL traffic: the simulator's /v1/health bypasses fault injection and answers "ok" while every
 real call returns 503, so it is never used here. Pure functions do the judging (unit-tested without I/O); the

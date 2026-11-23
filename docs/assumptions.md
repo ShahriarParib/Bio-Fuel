@@ -1,6 +1,7 @@
-# 10: Decisions (ADRs) and Assumptions
+# Decisions (ADRs), assumptions and deviations
 
-Copy this into the repo as `docs/decisions.md` + `docs/assumptions.md` in phase 15, updated with deviations.
+Why the platform is built the way it is, what we assumed, and every place where we changed the original design
+(with the measurement that made us change it).
 
 ## ADRs
 | # | Decision | Alternatives | Why |
@@ -29,13 +30,13 @@ Copy this into the repo as `docs/decisions.md` + `docs/assumptions.md` in phase 
 5. Safety stock target = z·σ·√L with z = 1.65 (95%) + 4 h of p50 demand.
 6. "Projected stockout" horizon = 12 h (48 ticks); scarcity look-ahead = 24 h (96 ticks).
 7. Operator auth = static bearer token (hackathon scope); roles: viewer, operator.
-8. Demo speed 0.5 tick/s; the engine also works at the default 8 tick/s (coalescing; verified in phase 12).
+8. Demo speed 0.5 tick/s; the engine also works at the default 8 tick/s (ticks are coalesced when it falls behind).
 9. Overflow loss and failed-allocation loss are treated as waste KPIs (not exposed by `/v1/metrics`; computed from the
    audit/allocations).
 10. Weekday effects: none in the simulator (verified from source: hour-of-day only); the `dow` feature is kept but
     expected to be irrelevant.
 
-## Deviations log (the executing AI appends here)
+## Deviations log
 | Date | Phase | Spec said | We did | Why |
 |---|---|---|---|---|
 | 2026-11-23 | B1 | sim_run id from a counter | `sim_runs` row resumed on engine restart, new on reset | counter restarted at 1 after a crash → idempotency key collisions |

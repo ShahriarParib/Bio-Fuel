@@ -1,4 +1,4 @@
-"""Generate the provisioned Grafana dashboards (06 §2.4) from one place.
+"""Generate the provisioned Grafana dashboards from one place.
 
     python observability/grafana/gen_dashboards.py      # writes observability/grafana/dashboards/*.json
 

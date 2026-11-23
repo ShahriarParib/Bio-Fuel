@@ -1,4 +1,4 @@
-"""Rolling-horizon LP optimizer (05 §4.3, tuned v4 from reference/policy_benchmark.py; PuLP 2.9 + CBC).
+"""Rolling-horizon LP optimizer (PuLP 2.9 + CBC), weights tuned on the evaluation harness.
 
 Model-predictive control: plan shipments for now (x) and for future dispatch slots (y) over 96 ticks, execute only x,
 re-plan every tick with fresh data. Why an LP: the constraints are coupled (one dispatch cap shared by every fuel and

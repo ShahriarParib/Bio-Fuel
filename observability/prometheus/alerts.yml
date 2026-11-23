@@ -1,4 +1,4 @@
-# 06 §2.5. Alertmanager forwards every alert to the api (/api/internal/alertmanager) → SYSTEM alerts in the UI.
+# Platform and domain alerts. Alertmanager forwards every alert to the api (/api/internal/alertmanager) → SYSTEM alerts in the UI.
 groups:
   - name: fsip-platform
     rules:
