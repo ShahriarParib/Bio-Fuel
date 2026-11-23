@@ -185,8 +185,9 @@ async def lifespan(app: FastAPI):
         hooks.append(_hook_persist_db)
 
     # Hook 0 (runs first, so the published state already contains the new recommendations): decide → act
+    # the optimizer looks 96 ticks ahead plus 16 ticks of safety stock beyond each checkpoint
     forecast_service = ForecastService(s.intelligence_url, timeout=s.intelligence_timeout_sec,
-                                       horizon=s.planning_horizon_ticks)
+                                       horizon=s.planning_horizon_ticks + s.safety_ticks + 8)
     decision_engine = DecisionEngine(
         store, sim_client, publisher, get_sessionmaker,
         ttl_ticks=s.decision_ttl_ticks, interval_ticks=s.engine_decision_interval_ticks,
@@ -289,6 +290,10 @@ async def ready():
             "status": "ready",
             "tick": store.last_tick,
             "decision_tick": app.state.decision_engine.last_cycle_tick,
+            "policy": store.policy,
+            "policy_used": app.state.decision_engine.last_policy_used,
+            "fallback_reason": app.state.decision_engine.last_fallback_reason,
+            "last_plan_ms": app.state.decision_engine.last_plan_ms,
             "operating_mode": store.operating_mode,
             "sim_run_id": store.sim_run_id,
             "degraded": store.degraded,

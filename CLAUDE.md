@@ -22,6 +22,14 @@ A working, demoable `main` beats any unfinished feature.
 5. Commit `bN: <what>` (one logical change per commit), push. Report: done / deviations / still red.
 6. Overrun by 50% → drop the block's last bullet, log a deviation in `docs/assumptions.md`, move on.
 
+## Git workflow (ALWAYS, for every feature, no exceptions)
+1. Start each feature/block on its own branch cut from `dev`: `git switch dev && git pull && git switch -c feature/<block>-<name>`.
+2. Commit the feature there; run its tests + lint; push the branch (CI runs on it).
+3. Merge into `dev` (`git switch dev && git merge --no-ff feature/...`), rebuild the stack from `dev` and run the full
+   check: unit tests, `make smoke`, `evaluation/e2e_autopilot.py`. Push `dev`.
+4. Only when `dev` is fully working: merge `dev` into `main` (`--no-ff`), push `main`. `main` is always demoable.
+5. Never commit feature work directly on `dev` or `main`. Hotfixes use `fix/<name>` branches the same way.
+
 ## Hard rules
 - Only the engine writes to the simulator (`POST /v1/allocations`, cancel). `/admin/*` only in tests, the evaluation
   harness, chaos scripts and the demo Control endpoints behind `DEMO_CONTROLS=true` + operator token.

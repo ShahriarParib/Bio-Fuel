@@ -252,6 +252,7 @@ class WorldState:
             "risk": self.extras.get("risk", []),
             "cover": self.extras.get("cover"),
             "forecast": self.extras.get("forecast"),
+            "impact_meter": self.extras.get("impact_meter"),
             "system": {
                 "simulator": "UP",
                 "sse": "CONNECTED",

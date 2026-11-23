@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useAlerts, useWorldState } from "@/api/hooks";
 import type { Fuel, RiskItem } from "@/api/types";
 import { FUELS } from "@/api/types";
+import { ImpactMeter } from "@/components/ImpactMeter";
 import { NetworkGraph } from "@/components/NetworkGraph";
 import { Card, Empty, ErrorBox, FuelBar, Kpi, RiskChip, SeverityBadge } from "@/components/ui";
 import { hours, liters, pct, RISK_ORDER, shortName } from "@/lib/format";
@@ -29,6 +30,8 @@ export default function Overview() {
         <Kpi label="Awaiting approval" value={s.pending_recommendations.length} sub={s.operating_mode === "autopilot" ? "autopilot on" : "advisory mode"} tone={s.pending_recommendations.length ? "warn" : "neutral"} />
         <Kpi label="Network cover" value={Number.isFinite(minCover) ? `${minCover.toFixed(1)} d` : "—"} sub={s.cover?.supply_ends_tick != null ? `last supply t=${s.cover.supply_ends_tick}` : "no more supply scheduled"} tone={minCover < 1 ? "bad" : minCover < 2 ? "warn" : "neutral"} />
       </div>
+
+      <ImpactMeter m={s.impact_meter} stations={s.stations} />
 
       <div className="grid gap-4 xl:grid-cols-3">
         <Card title="Network (live)" className="xl:col-span-2" right={<span className="text-xs text-ink-faint">bars: tank level · border: worst risk</span>}>
