@@ -94,6 +94,8 @@ export interface WorldState {
   allocations_active: Allocation[]; alerts_open_count: Record<Severity, number>;
   pending_recommendations: DecisionSummary[]; risk: RiskItem[]; cover: Cover | null; forecast: ForecastInfo | null;
   impact_meter?: ImpactMeter | null;
+  slo?: { slo: string; target: number; window_ticks: number; sli: number | null; budget_remaining: number;
+    burn_rate: number; autopilot_allowed: boolean; policy: string; mode: string; last_action?: string | null } | null;
   system?: { mode_reasons?: string[]; sim_down_for_s?: number; no_route_stations?: string[]; incidents_open?: number;
     components?: Record<string, { status: "UP" | "DEGRADED" | "DOWN"; detail?: string }> };
 }

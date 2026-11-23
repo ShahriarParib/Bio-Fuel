@@ -62,7 +62,11 @@ def run(scenario: str, policy: str, ticks: int) -> dict:
         c.post(f"{SIM}/admin/events", json=ev).raise_for_status()
     if policy != "do_nothing":
         c.post(f"{API}/api/control/policy", json={"policy": policy}, headers=SUP).raise_for_status()
-        c.post(f"{API}/api/control/mode", json={"mode": "autopilot"}, headers=OP).raise_for_status()
+        c.post(f"{API}/api/control/mode", json={"mode": "autopilot"}, headers=SUP).raise_for_status()
+        slo_mode = ((c.get(f"{ENGINE}/health/ready").json().get("slo") or {}).get("mode"))
+        if slo_mode == "enforce" and scenario != "baseline":
+            print("WARNING: SLO_POLICY=enforce: the error-budget policy may switch autopilot off mid-run; "
+                  "start the engine with SLO_POLICY=observe to measure a policy", file=sys.stderr)
 
     audit: dict[int, dict] = {}
     plan_ms, fallbacks = [], 0
@@ -98,9 +102,10 @@ def run(scenario: str, policy: str, ticks: int) -> dict:
         al = allocs.get(int(a["entity_id"])) if a.get("action") == "allocation.arrived" else None
         rec = (a.get("metadata_json") or {}).get("received") if al else None
         if al and rec is not None and al["quantity"] - rec > 0.5:
-            overflow_events.append({"allocation": al["id"], "station": al["destination_station_id"], "fuel": al["fuel_type"],
-                                    "created": al["created_tick"], "arrived": al.get("actual_arrival_tick"),
-                                    "quantity": al["quantity"], "received": round(rec, 1)})
+            overflow_events.append({"allocation": al["id"], "station": al["destination_station_id"],
+                                    "fuel": al["fuel_type"], "created": al["created_tick"],
+                                    "arrived": al.get("actual_arrival_tick"), "quantity": al["quantity"],
+                                    "received": round(rec, 1)})
     failed_l = sum(a["quantity"] for a in allocs.values() if a["status"] == "FAILED")
     per = {}
     for sid in STATIONS:

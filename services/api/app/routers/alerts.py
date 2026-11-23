@@ -41,6 +41,10 @@ async def alerts(request: Request, status: str = Query("OPEN"), severity: str | 
     items = doc.get("open", []) if status in ("OPEN", "ACKNOWLEDGED") else doc.get("recent_resolved", [])
     if status == "ALL":
         items = doc.get("open", []) + doc.get("recent_resolved", [])
+    # platform alerts from Prometheus/Alertmanager (category SYSTEM)
+    from .system import system_alerts
+    want = {"OPEN": ("OPEN",), "ACKNOWLEDGED": ("OPEN",), "ALL": ("OPEN", "RESOLVED")}.get(status, ("RESOLVED",))
+    items = [*[a for a in await system_alerts(request) if a["status"] in want], *items]
     if severity:
         items = [a for a in items if a.get("severity") == severity]
     if category:

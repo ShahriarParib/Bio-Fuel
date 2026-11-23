@@ -1,0 +1,17 @@
+# Rendered at container start: __INTERNAL_TOKEN__ is replaced from ENGINE_INTERNAL_TOKEN (never committed).
+route:
+  receiver: fsip-api
+  group_by: [alertname]
+  group_wait: 5s
+  group_interval: 30s
+  repeat_interval: 1h
+
+receivers:
+  - name: fsip-api
+    webhook_configs:
+      - url: http://api:8080/api/internal/alertmanager
+        send_resolved: true
+        http_config:
+          authorization:
+            type: Bearer
+            credentials: __INTERNAL_TOKEN__

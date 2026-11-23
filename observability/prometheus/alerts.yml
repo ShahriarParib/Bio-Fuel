@@ -1,17 +1,95 @@
+# 06 §2.5. Alertmanager forwards every alert to the api (/api/internal/alertmanager) → SYSTEM alerts in the UI.
 groups:
-  - name: fsip-basic
+  - name: fsip-platform
     rules:
       - alert: ContainerTargetDown
-        expr: up == 0
+        expr: up{job=~"engine|api|intelligence"} == 0
         for: 30s
         labels: {severity: critical}
-        annotations: {summary: "{{ $labels.job }} target down"}
+        annotations: {summary: "{{ $labels.job }} is not answering /metrics"}
+
+      - alert: SimulatorDown
+        # measured from real traffic (breaker), never from /v1/health
+        expr: fsip_breaker_state{name="simulator"} == 1
+        for: 15s
+        labels: {severity: critical}
+        annotations: {summary: "Simulator unreachable: circuit breaker OPEN, engine serving cached state"}
+
+      - alert: EngineSafeHold
+        expr: fsip_engine_mode{mode="SAFE_HOLD"} == 1
+        for: 0s
+        labels: {severity: critical}
+        annotations: {summary: "Engine in SAFE_HOLD: no shipments are sent until the simulator is back"}
+
+      - alert: EngineDegraded
+        expr: fsip_engine_mode{mode="DEGRADED"} == 1
+        for: 30s
+        labels: {severity: warning}
+        annotations: {summary: "Engine DEGRADED for 30 s: autopilot suspended, recommendations need a human"}
+
       - alert: ApiHighErrorRate
         expr: |
           sum(rate(http_requests_total{service="api",status=~"5.."}[1m]))
             / clamp_min(sum(rate(http_requests_total{service="api"}[1m])), 1e-9) > 0.05
         for: 1m
         labels: {severity: warning}
-        annotations: {summary: "API 5xx ratio > 5%"}
-      # phase 11 adds: SimulatorDown, HighLatencyP95, EngineFallingBehind, PredictionFallbackActive, StaleData,
-      # ServiceLevelDrop, StockoutRiskCritical (06_RESILIENCE_AND_OBSERVABILITY.md §2.5)
+        annotations: {summary: "API 5xx ratio above 5%"}
+
+      - alert: ApiHighLatencyP95
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service="api"}[5m]))) > 0.5
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: "API p95 latency above 500 ms"}
+
+      - alert: SimulatorSlow
+        expr: histogram_quantile(0.95, sum by (le) (rate(fsip_sim_request_duration_seconds_bucket[1m]))) > 1
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "Simulator p95 above 1 s"}
+
+      - alert: EngineFallingBehind
+        expr: fsip_ticks_behind > 10
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "Engine more than 10 ticks behind the simulator"}
+
+      - alert: PredictionFallbackActive
+        expr: increase(fsip_fallback_activations_total{component="forecast"}[2m]) > 0
+        labels: {severity: warning}
+        annotations: {summary: "Prediction service unavailable: built-in fallback forecaster in use"}
+
+      - alert: OptimizerFallbackActive
+        expr: increase(fsip_fallback_activations_total{component="optimizer"}[5m]) > 0
+        labels: {severity: warning}
+        annotations: {summary: "Optimizer failed at least once in 5 min: heuristic policy used"}
+
+      - alert: StaleData
+        expr: fsip_stale_data == 1
+        for: 30s
+        labels: {severity: warning}
+        annotations: {summary: "Simulator reports stale data: autopilot paused"}
+
+      - alert: InvalidSimulatorPayloads
+        expr: increase(fsip_sim_invalid_responses_total[2m]) > 0
+        labels: {severity: warning}
+        annotations: {summary: "Simulator sent payloads that failed validation (quarantined)"}
+
+      - alert: HistoryWritesBuffered
+        expr: fsip_db_buffered_writes > 100
+        for: 30s
+        labels: {severity: warning}
+        annotations: {summary: "History DB writes are buffering ({{ $value }} pending)"}
+
+  - name: fsip-domain
+    rules:
+      - alert: ServiceLevelDrop
+        expr: fsip_service_level < 0.97
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "Network fuel service level below 97% ({{ $value | humanizePercentage }})"}
+
+      - alert: StockoutRiskCritical
+        expr: max(fsip_stockout_prob) > 0.7
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "A station has a stockout probability above 70%"}

@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { useIncidents, useSystemStatus } from "@/api/hooks";
+import { useIncidents, useSystemStatus, useWorldState } from "@/api/hooks";
 import type { ComponentHealth, Incident, SystemStatus } from "@/api/types";
 import { StatusPill } from "@/components/StatusPill";
 import { Card } from "@/components/ui";
@@ -63,6 +63,36 @@ function ResilienceContract({ s }: { s: SystemStatus }) {
   );
 }
 
+const GRAFANA = [
+  { uid: "fsip-ops", title: "Operations" }, { uid: "fsip-health", title: "Service health" },
+  { uid: "fsip-intel", title: "Intelligence" }, { uid: "fsip-logs", title: "Logs & incidents" },
+];
+const grafanaUrl = (uid: string) => `${window.location.protocol}//${window.location.hostname}:13001/d/${uid}`;
+
+/** Domain SLO (fuel service level ≥ 99 % over one simulated day) and the error-budget policy. */
+function SloPanel() {
+  const { data: s } = useWorldState();
+  const slo = s?.slo;
+  if (!slo) return null;
+  const b = Math.max(0, Math.min(1, slo.budget_remaining));
+  return (
+    <Card title="Domain SLO: fuel service level" testId="slo-panel">
+      <div className="flex flex-wrap items-baseline gap-4 text-sm">
+        <span>SLI <b className="text-ink">{slo.sli == null ? "—" : `${(slo.sli * 100).toFixed(2)} %`}</b> over {slo.window_ticks} ticks</span>
+        <span className="text-ink-muted">target {(slo.target * 100).toFixed(0)} %</span>
+        <span className="text-ink-muted">burn rate {slo.burn_rate}×</span>
+      </div>
+      <div className="mt-2 h-3 w-full overflow-hidden rounded bg-bg-raised" aria-label="error budget remaining">
+        <div className={clsx("h-full", b < 0.25 ? "bg-state-down" : b < 0.5 ? "bg-risk-medium" : "bg-state-healthy")}
+          style={{ width: `${b * 100}%` }} />
+      </div>
+      <div className="mt-1 text-xs text-ink-muted">error budget left <b className="text-ink">{(b * 100).toFixed(0)} %</b> · policy: {slo.policy}
+        {slo.mode !== "enforce" && ` (${slo.mode} only)`} · autopilot {slo.autopilot_allowed ? "allowed" : "needs a supervisor override"}</div>
+      {slo.last_action && <div className="mt-1 text-xs text-risk-high">{slo.last_action}</div>}
+    </Card>
+  );
+}
+
 const KIND_CLS: Record<string, string> = {
   detected: "text-state-down", mitigated: "text-risk-medium", changed: "text-ink-muted", mode: "text-brand", recovered: "text-state-healthy",
 };
@@ -103,7 +133,10 @@ export default function SystemHealth() {
           engine {data.engine_mode}
         </span>
         <span className="text-xs text-ink-muted">measured from real traffic (errors, latency, breaker, stale header), not from /v1/health</span>
-        <a className="ml-auto text-xs text-brand underline" href="/breakglass/latest.html" target="_blank" rel="noreferrer">break-glass plan</a>
+        <span className="ml-auto flex flex-wrap gap-3 text-xs">
+          {GRAFANA.map((g) => <a key={g.uid} className="text-brand underline" href={grafanaUrl(g.uid)} target="_blank" rel="noreferrer">Grafana: {g.title}</a>)}
+          <a className="text-brand underline" href="/breakglass/latest.html" target="_blank" rel="noreferrer">break-glass plan</a>
+        </span>
       </div>
       {!!data.mode_reasons?.length && (
         <div className="rounded border border-risk-high/40 bg-risk-high/10 px-3 py-2 text-xs text-risk-high" data-testid="mode-reasons">
@@ -127,7 +160,7 @@ export default function SystemHealth() {
         })}
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
-        <ResilienceContract s={data} />
+        <div className="space-y-4"><ResilienceContract s={data} /><SloPanel /></div>
         <Card title={`Incidents (${inc.data?.open ?? 0} open)`} testId="incidents">
           {inc.data?.items.length ? (
             <ul className="max-h-[28rem] divide-y divide-bg-border overflow-auto">{inc.data.items.slice(0, 12).map((i) => <IncidentRow key={i.id} inc={i} />)}</ul>

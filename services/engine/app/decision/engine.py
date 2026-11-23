@@ -435,15 +435,25 @@ class DecisionEngine:
         return {"accepted": True, "decision_id": decision["id"] if decision else None,
                 "tick": self.last_planned_tick}
 
-    async def set_mode(self, actor: str, mode: str) -> dict[str, Any]:
+    async def set_mode(self, actor: str, mode: str, role: str = "operator") -> dict[str, Any]:
         if mode not in ("advisory", "autopilot"):
             raise DecisionError(422, "BAD_MODE", "mode must be advisory or autopilot")
         if mode == "autopilot" and (self.store.stale or self.store.degraded):
             raise DecisionError(409, "STALE_DATA", "cannot enable autopilot while data is stale or degraded")
+        slo = self.store.extras.get("slo") or {}
+        override = False
+        if mode == "autopilot" and slo.get("mode") == "enforce" and not slo.get("autopilot_allowed", True):
+            if role != "supervisor":
+                raise DecisionError(409, "SLO_BUDGET_EXHAUSTED",
+                                    f"fuel service-level error budget at {slo.get('budget_remaining', 0):.0%} "
+                                    "(< 25%): autopilot needs a supervisor override")
+            override = True
         self.store.operating_mode = mode
         OPERATOR_ACTIONS.labels(action=f"mode_{mode}").inc()
         await self._db(repo.audit_log, actor=actor, action="engine.mode", entity_type="engine", entity_id="mode",
-                       payload={"mode": mode})
+                       payload={"mode": mode, "role": role, "slo_override": override})
+        if override:
+            slo["last_action"] = f"supervisor {actor} overrode the error-budget policy"
         await self.publisher.event("mode.changed", {"engine_mode": self.store.engine_mode, "operating_mode": mode,
                                                     "reasons": sorted(self.store.degraded_reasons)})
         return {"mode": mode}

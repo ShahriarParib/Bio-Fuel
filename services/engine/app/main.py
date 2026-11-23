@@ -225,6 +225,15 @@ async def lifespan(app: FastAPI):
             log.warning("breakglass.write_failed", error=str(err))
 
     hooks.append(_hook_breakglass)
+
+    from .state import slo as slo_mod
+    domain_slo = slo_mod.DomainSlo()
+
+    async def _hook_slo(ws: WorldState) -> None:
+        await slo_mod.enforce(ws, domain_slo, publisher, s.slo_policy)
+
+    # after the pipeline, before deciding: a forced-off autopilot must not execute in this very cycle
+    hooks.insert(1, _hook_slo)
     app.state.decision_engine = decision_engine
     app.state.alerts = alert_manager
     app.state.forecast = forecast_service
@@ -332,6 +341,7 @@ async def ready():
             "stale": store.stale,
             "last_sync_age_sec": round(last_sync_age, 2),
             "engine_mode": store.engine_mode,
+            "slo": store.extras.get("slo"),
         }
 
     # No snapshot yet: probe simulator directly
@@ -402,6 +412,7 @@ class ActorBody(BaseModel):
 
 class ModeBody(ActorBody):
     mode: str
+    role: str = "operator"
 
 
 class PolicyBody(ActorBody):
@@ -448,7 +459,7 @@ async def plan_now(body: ActorBody):
 
 @app.post("/internal/mode", dependencies=[Depends(require_internal)])
 async def set_mode(body: ModeBody):
-    return await _engine().set_mode(body.actor, body.mode)
+    return await _engine().set_mode(body.actor, body.mode, body.role)
 
 
 @app.post("/internal/policy", dependencies=[Depends(require_internal)])

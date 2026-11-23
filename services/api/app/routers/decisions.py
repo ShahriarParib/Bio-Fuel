@@ -123,7 +123,8 @@ async def plan_now(request: Request, actor: Actor = Depends(require_operator)):
 
 @router.post("/control/mode")
 async def control_mode(request: Request, body: ModeIn, actor: Actor = Depends(require_operator)):
-    return await _engine(request, "POST", "/internal/mode", {"actor": actor.name, "mode": body.mode})
+    return await _engine(request, "POST", "/internal/mode", {"actor": actor.name, "mode": body.mode,
+                                                           "role": actor.role})
 
 
 @router.post("/control/policy")
