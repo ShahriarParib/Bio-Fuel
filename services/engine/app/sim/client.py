@@ -143,12 +143,15 @@ class SimClient:
 
             elapsed_s = time.perf_counter() - t0
             SIM_REQUEST_DURATION.labels(endpoint=ep_label, status=status_label).observe(elapsed_s)
-            self.breaker.record_failure()
 
             if attempt < attempts - 1:
                 backoff = min(2.0, 0.2 * (2**attempt)) * (0.5 + random.random())
                 await asyncio.sleep(backoff)
 
+        # One breaker failure per REQUEST (after its retries), not per attempt. Counting attempts opened the breaker
+        # at a 50% error rate (5 failed attempts in a row is common), stopping the engine for 15 s although half the
+        # calls worked (found by the F2 drill). A dead simulator still opens it within one snapshot (9 requests).
+        self.breaker.record_failure()
         raise last_exc or SimUnavailable("Unknown simulator request error")
 
     # --- Read API ---

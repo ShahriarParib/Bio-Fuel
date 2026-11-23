@@ -4,7 +4,11 @@ global:
 
 rule_files:
   - /etc/prometheus/alerts.yml
-  # - /etc/prometheus/slo.yml        # phase 11 (F-SLO)
+  - /etc/prometheus/slo.yml
+
+alerting:
+  alertmanagers:
+    - static_configs: [{targets: ["alertmanager:9093"]}]
 
 scrape_configs:
   - job_name: engine
@@ -22,6 +26,15 @@ scrape_configs:
     relabel_configs:
       - target_label: service
         replacement: api
+  - job_name: cadvisor
+    static_configs: [{targets: ["cadvisor:8080"]}]
+    metric_relabel_configs:          # keep only our containers' series: cAdvisor is very chatty
+      - source_labels: [container_label_com_docker_compose_service]
+        regex: ".+"
+        action: keep
+  - job_name: node
+    static_configs: [{targets: ["node-exporter:9100"]}]
+  - job_name: alertmanager
+    static_configs: [{targets: ["alertmanager:9093"]}]
   - job_name: prometheus
     static_configs: [{targets: ["localhost:9090"]}]
-  # phase 11: cadvisor:8080, node-exporter:9100, notifier:8300

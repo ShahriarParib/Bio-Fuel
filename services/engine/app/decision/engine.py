@@ -435,7 +435,7 @@ class DecisionEngine:
         return {"accepted": True, "decision_id": decision["id"] if decision else None,
                 "tick": self.last_planned_tick}
 
-    async def set_mode(self, actor: str, mode: str) -> dict[str, Any]:
+    async def set_mode(self, actor: str, mode: str, role: str = "operator") -> dict[str, Any]:
         if mode not in ("advisory", "autopilot"):
             raise DecisionError(422, "BAD_MODE", "mode must be advisory or autopilot")
         if mode == "autopilot" and (self.store.stale or self.store.degraded):
@@ -443,17 +443,22 @@ class DecisionEngine:
         self.store.operating_mode = mode
         OPERATOR_ACTIONS.labels(action=f"mode_{mode}").inc()
         await self._db(repo.audit_log, actor=actor, action="engine.mode", entity_type="engine", entity_id="mode",
-                       payload={"mode": mode})
+                       payload={"mode": mode, "role": role})
         await self.publisher.event("mode.changed", {"engine_mode": self.store.engine_mode, "operating_mode": mode,
                                                     "reasons": sorted(self.store.degraded_reasons)})
         return {"mode": mode}
 
-    async def set_policy(self, actor: str, policy: str) -> dict[str, Any]:
+    async def set_policy(self, actor: str, policy: str, override: bool = False) -> dict[str, Any]:
         if policy not in ("optimizer", "heuristic"):
             raise DecisionError(422, "BAD_POLICY", "policy must be optimizer or heuristic")
+        slo = self.store.extras.get("slo") or {}
+        if slo.get("change_freeze") and policy != self.store.policy and not override:
+            raise DecisionError(409, "SLO_CHANGE_FREEZE",
+                                f"fuel service-level error budget at {slo.get('budget_remaining', 0):.0%}: "
+                                "change freeze; pass override=true to switch the policy anyway (audit-logged)")
         self.store.policy = policy
         await self._db(repo.audit_log, actor=actor, action="engine.policy", entity_type="engine",
-                       entity_id="policy", payload={"policy": policy})
+                       entity_id="policy", payload={"policy": policy, "freeze_override": bool(override)})
         return {"policy": policy}
 
     # ------------------------------------------------------------------ publishing

@@ -30,6 +30,12 @@ STOCKOUT_PROB = Gauge("fsip_stockout_prob", "12 h stockout probability", ["stati
 COVER_DAYS = Gauge("fsip_network_cover_days", "Network fuel cover (days of forecast demand)", ["fuel"])
 STATION_INV = Gauge("fsip_station_inventory_liters", "Station inventory", ["station", "fuel"])
 DEPOT_INV = Gauge("fsip_depot_inventory_liters", "Depot inventory", ["depot", "fuel"])
+INFLIGHT = Gauge("fsip_inflight_liters", "Our shipments on the way", ["station", "fuel"])
+SERVICE_LEVEL = Gauge("fsip_service_level", "Network fuel service level (simulator ground truth)")
+# cumulative litres from /v1/metrics (gauges: they fall to 0 on a world reset; increase() handles that as a reset)
+SIM_SERVED = Gauge("fsip_sim_served_liters", "Cumulative served demand (simulator)")
+SIM_UNMET = Gauge("fsip_sim_unmet_liters", "Cumulative unmet demand (simulator)")
+STALE = Gauge("fsip_stale_data", "1 while the simulator flags its data stale")
 
 PREEMPT_TICKS = 16          # warn about scheduled disruptions/outages this far ahead (4 h)
 SUPPLY_LOOKAHEAD = 24       # check depot room for supply arriving within 6 h
@@ -104,6 +110,12 @@ class IntelligencePipeline:
         for (sid, f), r in risks.items():
             STOCKOUT_PROB.labels(station=sid, fuel=f).set(r.prob_12h)
             STATION_INV.labels(station=sid, fuel=f).set(r.inventory)
+            INFLIGHT.labels(station=sid, fuel=f).set(r.inflight)
+        met = ws.snapshot.metrics
+        SERVICE_LEVEL.set(met.service_level)
+        SIM_SERVED.set(met.served_demand_liters)
+        SIM_UNMET.set(met.unmet_demand_liters)
+        STALE.set(1 if ws.stale else 0)
         for d in state.depots.values():
             for f in FUELS:
                 DEPOT_INV.labels(depot=d.id, fuel=f).set(float(d.inventory[f]))

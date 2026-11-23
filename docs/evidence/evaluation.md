@@ -6,18 +6,24 @@ Measured against the running platform and the official simulator image (determin
 |---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
 | baseline | 288 | do_nothing | 0.3074 | 193,586 | 0.2649 | 0 | 0 | 73,000 | 0 | — |
 | baseline | 288 | heuristic | 1.0000 | 0 | 1.0000 | 0 | 0 | 0 | 307,400 | 0.1 |
-| baseline | 288 | optimizer | 1.0000 | 0 | 1.0000 | 0 | 0 | 0 | 302,460 | 151.7 |
+| baseline | 288 | optimizer | 1.0000 | 0 | 1.0000 | 0 | 0 | 0 | 301,210 | 102.9 |
 | crisis | 288 | do_nothing | 0.2559 | 249,805 | 0.2206 | 0 | 0 | 13,000 | 0 | — |
-| crisis | 288 | heuristic | 0.9921 | 2,647 | 0.9645 | 0 | 0 | 0 | 348,550 | 0.3 |
-| crisis | 288 | optimizer | 0.9921 | 2,647 | 0.9645 | 0 | 80 | 0 | 342,710 | 204.7 |
+| crisis | 288 | heuristic | 0.9921 | 2,647 | 0.9645 | 0 | 0 | 0 | 351,300 | 0.2 |
+| crisis | 288 | optimizer | 0.9921 | 2,647 | 0.9645 | 0 | 0 | 0 | 338,300 | 89.9 |
 | single_route_cut | 288 | do_nothing | 0.2878 | 212,597 | 0.2505 | 0 | 0 | 73,000 | 0 | — |
-| single_route_cut | 288 | heuristic | 1.0000 | 0 | 1.0000 | 0 | 0 | 0 | 317,200 | 0.2 |
-| single_route_cut | 288 | optimizer | 1.0000 | 0 | 1.0000 | 0 | 0 | 0 | 321,630 | 180.6 |
+| single_route_cut | 288 | heuristic | 1.0000 | 0 | 1.0000 | 0 | 0 | 0 | 320,710 | 0.3 |
+| single_route_cut | 288 | optimizer | 0.9955 | 1,340 | 0.9925 | 0 | 0 | 0 | 310,610 | 259.8 |
 | baseline | 600 | do_nothing | 0.1497 | 488,093 | 0.1284 | 0 | 0 | 73,000 | 0 | — |
-| baseline | 600 | heuristic | 0.9471 | 30,346 | 0.8681 | 0 | 0 | 0 | 468,000 | 0.2 |
-| baseline | 600 | optimizer | 0.9538 | 26,516 | 0.9294 | 0 | 0 | 0 | 467,720 | 79.8 |
+| baseline | 600 | heuristic | 0.9471 | 30,346 | 0.8681 | 0 | 0 | 0 | 468,000 | 0.7 |
+| baseline | 600 | optimizer | 0.9551 | 25,755 | 0.9215 | 0 | 0 | 0 | 467,640 | 228.5 |
 | crisis | 600 | do_nothing | 0.1363 | 544,312 | 0.1170 | 0 | 0 | 13,000 | 0 | — |
-| crisis | 600 | heuristic | 0.7528 | 155,812 | 0.7144 | 0 | 0 | 0 | 388,500 | 0.3 |
-| crisis | 600 | optimizer | 0.7520 | 156,263 | 0.7373 | 0 | 80 | 0 | 388,130 | 72.1 |
+| crisis | 600 | heuristic | 0.7528 | 155,812 | 0.7171 | 0 | 0 | 0 | 388,500 | 1.1 |
+| crisis | 600 | optimizer | 0.7521 | 156,222 | 0.7344 | 0 | 0 | 0 | 388,090 | 195.6 |
 
 Raw results: `docs/evidence/evaluation-matrix.json`.
+
+Note (2026-11-24): the `single_route_cut / optimizer` row was re-run on its own. In the matrix run the engine stalled
+for most of it (wall time 3,558 s instead of ~150 s, every station equally short), so the harness stepped the
+simulator with no decisions being made. The clean re-run is shown. Compared with B5 (SL 1.0000) the optimizer is
+slightly more cautious on day 1 (0.9955) because the forecast band is no longer allowed to be narrower than ±12% before
+one full day of history: the price of never losing fuel to overflow (crisis optimizer overflow 80 L → 0 L).

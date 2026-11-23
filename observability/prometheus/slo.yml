@@ -1,0 +1,85 @@
+# F-SLO (12): four SLOs incl. a DOMAIN SLO, with multi-window burn-rate alerts (Google SRE workbook pattern, scaled to
+# a 1 h budget window for hackathon timescales: fast burn 14.4x over 5m AND 1h, slow burn 6x over 30m AND 6h).
+#
+#   SLO                         SLI                                                   target
+#   api_availability            non-5xx / all on the api                              99.5 %
+#   api_latency                 /api/state requests faster than 250 ms (histogram bucket)  99 %
+#   decision_freshness          engine <= 2 ticks behind the simulator                99 %
+#   fuel_service_level (domain) served / (served + unmet) litres, from the simulator  99 %
+#
+# Error-budget policy (enforced by the engine for the domain SLO, see services/engine/app/state/slo.py):
+# budget < 25 % → autopilot forced OFF, every recommendation needs a human.
+groups:
+  - name: fsip-slo-sli
+    interval: 15s
+    rules:
+      # ---- error ratios per window (1 - SLI) ----
+      - record: slo:api_availability:error_ratio_rate5m
+        expr: (sum(rate(http_requests_total{service="api",status=~"5.."}[5m])) or vector(0)) / clamp_min(sum(rate(http_requests_total{service="api"}[5m])), 1e-9)
+      - record: slo:api_availability:error_ratio_rate30m
+        expr: (sum(rate(http_requests_total{service="api",status=~"5.."}[30m])) or vector(0)) / clamp_min(sum(rate(http_requests_total{service="api"}[30m])), 1e-9)
+      - record: slo:api_availability:error_ratio_rate1h
+        expr: (sum(rate(http_requests_total{service="api",status=~"5.."}[1h])) or vector(0)) / clamp_min(sum(rate(http_requests_total{service="api"}[1h])), 1e-9)
+      - record: slo:api_availability:error_ratio_rate6h
+        expr: (sum(rate(http_requests_total{service="api",status=~"5.."}[6h])) or vector(0)) / clamp_min(sum(rate(http_requests_total{service="api"}[6h])), 1e-9)
+
+      - record: slo:api_latency:error_ratio_rate5m
+        expr: ((sum(rate(http_request_duration_seconds_count{service="api",route="/api/state"}[5m])) - sum(rate(http_request_duration_seconds_bucket{service="api",route="/api/state",le="0.25"}[5m]))) / clamp_min(sum(rate(http_request_duration_seconds_count{service="api",route="/api/state"}[5m])), 1e-9)) or vector(0)
+      - record: slo:api_latency:error_ratio_rate1h
+        expr: ((sum(rate(http_request_duration_seconds_count{service="api",route="/api/state"}[1h])) - sum(rate(http_request_duration_seconds_bucket{service="api",route="/api/state",le="0.25"}[1h]))) / clamp_min(sum(rate(http_request_duration_seconds_count{service="api",route="/api/state"}[1h])), 1e-9)) or vector(0)
+
+      - record: slo:decision_freshness:error_ratio_rate5m
+        expr: avg_over_time((fsip_ticks_behind > bool 2)[5m:15s])
+      - record: slo:decision_freshness:error_ratio_rate1h
+        expr: avg_over_time((fsip_ticks_behind > bool 2)[1h:15s])
+
+      # domain: litres unmet / litres demanded, from the simulator's cumulative counters (resets on a world reset)
+      - record: slo:fuel_service_level:error_ratio_rate5m
+        expr: increase(fsip_sim_unmet_liters[5m]) / clamp_min(increase(fsip_sim_unmet_liters[5m]) + increase(fsip_sim_served_liters[5m]), 1e-9)
+      - record: slo:fuel_service_level:error_ratio_rate30m
+        expr: increase(fsip_sim_unmet_liters[30m]) / clamp_min(increase(fsip_sim_unmet_liters[30m]) + increase(fsip_sim_served_liters[30m]), 1e-9)
+      - record: slo:fuel_service_level:error_ratio_rate1h
+        expr: increase(fsip_sim_unmet_liters[1h]) / clamp_min(increase(fsip_sim_unmet_liters[1h]) + increase(fsip_sim_served_liters[1h]), 1e-9)
+      - record: slo:fuel_service_level:error_ratio_rate6h
+        expr: increase(fsip_sim_unmet_liters[6h]) / clamp_min(increase(fsip_sim_unmet_liters[6h]) + increase(fsip_sim_served_liters[6h]), 1e-9)
+
+      # ---- error budget remaining over the 1 h window (1 = untouched, 0 = spent) ----
+      - record: slo:error_budget_remaining:ratio
+        labels: {slo: api_availability}
+        expr: clamp_min(1 - slo:api_availability:error_ratio_rate1h / 0.005, 0)
+      - record: slo:error_budget_remaining:ratio
+        labels: {slo: api_latency}
+        expr: clamp_min(1 - slo:api_latency:error_ratio_rate1h / 0.01, 0)
+      - record: slo:error_budget_remaining:ratio
+        labels: {slo: decision_freshness}
+        expr: clamp_min(1 - slo:decision_freshness:error_ratio_rate1h / 0.01, 0)
+      - record: slo:error_budget_remaining:ratio
+        labels: {slo: fuel_service_level}
+        expr: clamp_min(1 - slo:fuel_service_level:error_ratio_rate1h / 0.01, 0)
+
+  - name: fsip-slo-burn
+    rules:
+      - alert: ApiAvailabilityFastBurn
+        expr: slo:api_availability:error_ratio_rate5m > 14.4 * 0.005 and slo:api_availability:error_ratio_rate1h > 14.4 * 0.005
+        labels: {severity: critical, slo: api_availability}
+        annotations: {summary: "API availability budget burning 14x too fast (5m and 1h)"}
+      - alert: ApiAvailabilitySlowBurn
+        expr: slo:api_availability:error_ratio_rate30m > 6 * 0.005 and slo:api_availability:error_ratio_rate6h > 6 * 0.005
+        labels: {severity: warning, slo: api_availability}
+        annotations: {summary: "API availability budget burning 6x too fast (30m and 6h)"}
+      - alert: ApiLatencyFastBurn
+        expr: slo:api_latency:error_ratio_rate5m > 14.4 * 0.01 and slo:api_latency:error_ratio_rate1h > 14.4 * 0.01
+        labels: {severity: critical, slo: api_latency}
+        annotations: {summary: "/api/state latency budget burning 14x too fast"}
+      - alert: DecisionFreshnessFastBurn
+        expr: slo:decision_freshness:error_ratio_rate5m > 14.4 * 0.01 and slo:decision_freshness:error_ratio_rate1h > 14.4 * 0.01
+        labels: {severity: critical, slo: decision_freshness}
+        annotations: {summary: "Engine falling behind the simulator: freshness budget burning 14x too fast"}
+      - alert: FuelServiceLevelFastBurn
+        expr: slo:fuel_service_level:error_ratio_rate5m > 14.4 * 0.01 and slo:fuel_service_level:error_ratio_rate1h > 14.4 * 0.01
+        labels: {severity: critical, slo: fuel_service_level}
+        annotations: {summary: "Unmet fuel demand burning the domain error budget 14x too fast"}
+      - alert: FuelServiceLevelSlowBurn
+        expr: slo:fuel_service_level:error_ratio_rate30m > 6 * 0.01 and slo:fuel_service_level:error_ratio_rate6h > 6 * 0.01
+        labels: {severity: warning, slo: fuel_service_level}
+        annotations: {summary: "Unmet fuel demand burning the domain error budget 6x too fast"}

@@ -25,6 +25,7 @@ class EngineSettings(BaseServiceSettings):
     scarcity_policy: str = "history_based"
     safe_hold_after_sec: float = 60.0         # simulator down this long → SAFE_HOLD
     breakglass_dir: str = "/data/breakglass"
+    slo_policy: str = "enforce"               # enforce | observe (evaluation harness)
 
 
 @lru_cache

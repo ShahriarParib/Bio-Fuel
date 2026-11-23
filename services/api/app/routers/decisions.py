@@ -40,6 +40,7 @@ class ModeIn(BaseModel):
 
 class PolicyIn(BaseModel):
     policy: str = Field(pattern="^(optimizer|heuristic)$")
+    override: bool = False  # break the SLO change freeze (audit-logged)
 
 
 async def _cached_decisions(request: Request) -> list[dict[str, Any]]:
@@ -123,12 +124,14 @@ async def plan_now(request: Request, actor: Actor = Depends(require_operator)):
 
 @router.post("/control/mode")
 async def control_mode(request: Request, body: ModeIn, actor: Actor = Depends(require_operator)):
-    return await _engine(request, "POST", "/internal/mode", {"actor": actor.name, "mode": body.mode})
+    return await _engine(request, "POST", "/internal/mode", {"actor": actor.name, "mode": body.mode,
+                                                           "role": actor.role})
 
 
 @router.post("/control/policy")
 async def control_policy(request: Request, body: PolicyIn, actor: Actor = Depends(require_supervisor)):
-    return await _engine(request, "POST", "/internal/policy", {"actor": actor.name, "policy": body.policy})
+    return await _engine(request, "POST", "/internal/policy", {"actor": actor.name, "policy": body.policy,
+                                                             "override": body.override})
 
 
 @router.get("/audit")

@@ -182,6 +182,39 @@ def test_degraded_reasons_clear_when_data_returns():
     assert not ws.degraded_reasons
 
 
+def test_demand_fetch_failure_does_not_stick_after_recovery():
+    """Regression: a sticky 'demand_fetch_failed' kept confidence at 0.5 after an outage: autopilot never ran again."""
+    import asyncio
+
+    from app.sim.client import SimResult
+    from app.state.store import WorldState
+    from app.state.sync import SyncLoop
+
+    snap = {name: SimResult(data=_load(fx), stale=False, status=200, latency_ms=1.0) for name, fx in (
+        ("instance", "instance"), ("regions", "regions"), ("depots", "depots"), ("stations", "stations"),
+        ("routes", "routes"), ("events", "events"), ("supply_arrivals", "supply_arrivals"),
+        ("allocations", "allocations"), ("metrics", "metrics"))}
+
+    class Client:
+        fail = True
+
+        async def snapshot(self):
+            return snap
+
+        async def demand_history(self, limit=200):
+            if self.fail:
+                raise SimUnavailable("503")
+            return SimResult(data=_load("demand_history"), stale=False, status=200, latency_ms=1.0)
+
+    ws, client = WorldState(), Client()
+    loop = SyncLoop(client, ws)
+    asyncio.run(loop._execute_cycle(None))
+    assert "demand_fetch_failed" in ws.degraded_reasons and ws.degraded
+    client.fail = False
+    asyncio.run(loop._execute_cycle(None))
+    assert "demand_fetch_failed" not in ws.degraded_reasons and not ws.degraded
+
+
 def test_optimizer_plan_is_feasible_and_refills_the_low_station(monkeypatch):
     from app.decision import optimizer
 

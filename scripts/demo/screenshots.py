@@ -21,6 +21,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--approve", action="store_true", help="click Approve on the first recommendation")
     ap.add_argument("--prefix", default="console")
+    ap.add_argument("--pages", nargs="*", default=PAGES)
     args = ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as p:
@@ -28,7 +29,7 @@ def main() -> None:
         page = browser.new_page(viewport={"width": 1600, "height": 1000}, device_scale_factor=1)
         page.goto(f"{UI}/overview")
         page.evaluate(f"localStorage.setItem('fsip.operatorToken', '{TOKEN}')")
-        for name in PAGES:
+        for name in args.pages:
             page.goto(f"{UI}/{name}")
             page.wait_for_timeout(2500)
             page.screenshot(path=str(OUT / f"{args.prefix}-{name}.png"), full_page=True)

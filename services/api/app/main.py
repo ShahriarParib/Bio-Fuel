@@ -109,7 +109,10 @@ app.include_router(system.router)
 @app.middleware("http")
 async def rate_limit_and_metrics_middleware(request: Request, call_next):
     """Enforce rate limits and track Prometheus and rolling window metrics."""
-    client_ip = request.client.host if request.client else "127.0.0.1"
+    # behind nginx every request comes from the proxy's IP: without X-Forwarded-For all users would share one bucket
+    forwarded = request.headers.get("x-forwarded-for", "")
+    direct_ip = request.client.host if request.client else "127.0.0.1"
+    client_ip = forwarded.split(",")[0].strip() if forwarded else direct_ip
     now = time.monotonic()
 
     # Rate limiting (bypass metrics, health, docs)

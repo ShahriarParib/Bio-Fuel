@@ -100,6 +100,10 @@ async def system_status(request: Request):
         "no_route_stations": system.get("no_route_stations", []),
         "data_tick": (state or {}).get("tick"),
         "data_age_seconds": (state or {}).get("age_seconds"),
+        # decision inputs flagged degraded/stale → confidence 0.5 and autopilot will not execute;
+        # "recovered" means this is false again
+        "data_degraded": bool((state or {}).get("degraded", True)),
+        "data_degraded_reasons": (state or {}).get("degraded_reasons", []),
         "components": components,
         "versions": {"api": os.getenv("APP_VERSION", "dev"), "git_sha": os.getenv("GIT_SHA", "unknown")},
         "p95_latency_ms": stats["p95_ms"],
@@ -161,6 +165,12 @@ class FaultBody(BaseModel):
 @router.post("/demo/faults")
 async def inject_fault(body: FaultBody, request: Request, actor: Actor = Depends(require_operator),
                        _: None = Depends(_demo_enabled)):
+    # SRE error-budget policy: no chaos experiments while the domain budget is spent (a supervisor may still run one)
+    slo = ((await _redis_json(request, "fsip:state")) or {}).get("slo") or {}
+    if slo.get("change_freeze") and actor.role != "supervisor":
+        raise HTTPException(status_code=409, detail={
+            "code": "CHAOS_PAUSED", "message": f"fuel service-level error budget at "
+            f"{slo.get('budget_remaining', 0):.0%}: fault injection paused (supervisor token overrides)"})
     params: dict[str, Any] = {}
     if body.rate is not None:
         params["rate"] = body.rate
@@ -215,3 +225,60 @@ async def inject_event(body: EventBody, request: Request, actor: Actor = Depends
         created.append(await _admin(request, "POST", "/admin/events", ev))
     _audit(actor, "event.inject", {"preset": body.preset, "tick": tick})
     return {"preset": body.preset, "at_tick": tick, "created": created}
+
+
+# ------------------------------------------------------------------ Alertmanager → SYSTEM alerts
+SYSTEM_ALERTS_KEY = "fsip:system-alerts"
+
+
+def _require_internal(request: Request) -> None:
+    import hmac
+    auth = request.headers.get("authorization", "")
+    token = auth.split(" ", 1)[1] if auth.lower().startswith("bearer ") else ""
+    if not hmac.compare_digest(token.encode(), get_settings().engine_internal_token.encode()):
+        raise HTTPException(status_code=401, detail={"code": "UNAUTHORIZED", "message": "bad internal token"})
+
+
+def merge_alertmanager(doc: dict[str, Any], payload: dict[str, Any], now: float) -> dict[str, Any]:
+    """Pure: apply one Alertmanager webhook payload to the {fingerprint: alert} document."""
+    items = dict(doc.get("items") or {})
+    for a in payload.get("alerts", []):
+        fp = a.get("fingerprint") or a.get("labels", {}).get("alertname", "unknown")
+        labels, ann = a.get("labels", {}), a.get("annotations", {})
+        sev = {"critical": "CRITICAL", "warning": "WARNING"}.get(labels.get("severity", ""), "INFO")
+        firing = a.get("status") == "firing"
+        prev = items.get(fp, {})
+        items[fp] = {
+            "id": prev.get("id") or -(abs(hash(fp)) % 10**6) - 1,  # negative ids: not engine alerts (ack not needed)
+            "fingerprint": f"system:{fp}", "category": "SYSTEM", "severity": sev,
+            "status": "OPEN" if firing else "RESOLVED",
+            "title": labels.get("alertname", "alert"), "message": ann.get("summary", ""),
+            "entity_type": "platform", "entity_id": labels.get("job") or labels.get("slo"),
+            "opened_at": a.get("startsAt"), "resolved_at": None if firing else a.get("endsAt"),
+            "data": {"labels": labels, "source": "prometheus/alertmanager"}, "updated": now,
+        }
+    # keep resolved ones for 1 h
+    items = {k: v for k, v in items.items() if v["status"] == "OPEN" or now - v["updated"] < 3600}
+    return {"items": items}
+
+
+@router.post("/internal/alertmanager", include_in_schema=False)
+async def alertmanager_webhook(request: Request):
+    _require_internal(request)
+    payload = await request.json()
+    redis = getattr(request.app.state, "redis", None)
+    doc = await _redis_json(request, SYSTEM_ALERTS_KEY) or {}
+    doc = merge_alertmanager(doc, payload, time.time())
+    if redis is not None:
+        try:
+            await redis.set(SYSTEM_ALERTS_KEY, json.dumps(doc))
+        except Exception as err:
+            log.warning("api.system_alerts_store_failed", error=str(err))
+    log.info("alertmanager.received", alerts=[a.get("labels", {}).get("alertname") for a in payload.get("alerts", [])],
+             status=payload.get("status"))
+    return {"ok": True, "stored": len(doc["items"])}
+
+
+async def system_alerts(request: Request) -> list[dict[str, Any]]:
+    doc = await _redis_json(request, SYSTEM_ALERTS_KEY) or {}
+    return list((doc.get("items") or {}).values())
