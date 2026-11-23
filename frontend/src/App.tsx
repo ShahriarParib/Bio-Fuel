@@ -58,6 +58,7 @@ function Header() {
         s?.engine_mode === "NORMAL" ? "bg-state-healthy/15 text-state-healthy" : "bg-risk-high/15 text-risk-high")} data-testid="engine-mode">
         engine {s?.engine_mode ?? "?"}
       </span>
+      {s && <span className="text-xs text-ink-muted" data-testid="policy">policy: {s.policy}</span>}
       <div className="ml-auto flex items-center gap-4">
         <button disabled={!getToken() || setMode.isPending || !s}
           onClick={() => setMode.mutate(auto ? "advisory" : "autopilot")}

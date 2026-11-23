@@ -65,6 +65,12 @@ export interface ForecastInfo {
   model: string; source: "intelligence" | "fallback"; reason: string | null; wape: number | null;
   coverage_80: number | null; noise_floor_wape: number | null; n: number;
 }
+export interface ImpactMeter {
+  available: boolean; since_tick?: number; method?: string; demand_liters?: number; unmet_prevented_liters?: number;
+  without_platform?: { unmet_liters: number; service_level: number; stations_that_ran_dry: number;
+    first_dry: { station_id: string; fuel_type: Fuel; tick: number }[] };
+  with_platform?: { unmet_liters: number; service_level: number };
+}
 export interface WorldState {
   sim_run_id: number; tick: number; sim_time: string; tick_minutes: number; sim_status: "PAUSED" | "RUNNING";
   clock_label: string; generated_at: string; age_seconds: number; stale: boolean; degraded: boolean;
@@ -74,6 +80,7 @@ export interface WorldState {
   stations: Station[]; depots: Depot[]; routes: Route[]; events: SimEvent[]; supply_upcoming: SupplyArrival[];
   allocations_active: Allocation[]; alerts_open_count: Record<Severity, number>;
   pending_recommendations: DecisionSummary[]; risk: RiskItem[]; cover: Cover | null; forecast: ForecastInfo | null;
+  impact_meter?: ImpactMeter | null;
 }
 
 export interface DecisionLine {

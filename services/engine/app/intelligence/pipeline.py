@@ -21,6 +21,7 @@ from ..decision.planning import FUELS, Key, PlanningState
 from ..risk.stockout import assess
 from ..state.store import WorldState
 from .client import ForecastService
+from .counterfactual import CounterfactualMeter
 from .series import base_multiplier, spike_events
 
 log = get_logger()
@@ -67,6 +68,7 @@ class IntelligencePipeline:
         self.supply_first_qty: dict[str, float] = {}
         self.run_id: int | None = None
         self.last: dict[str, Any] = {}
+        self.meter = CounterfactualMeter()
 
     async def on_cycle(self, ws: WorldState) -> None:
         if ws.snapshot is None:
@@ -77,6 +79,10 @@ class IntelligencePipeline:
             self.anomaly_until.clear()
             self.supply_first_qty.clear()
             self.run_id = ws.sim_run_id
+            self.meter.reset(ws.sim_run_id)
+        if self.meter.start_tick is None:
+            self.meter.start(tick, ws.snapshot.stations)
+        self.meter.observe(ws.new_demand_rows)
         self.alerts.begin(ws.sim_run_id, tick)
         self._update_cusum(ws)
         bundle = await self.forecast.refresh(ws)
@@ -94,7 +100,7 @@ class IntelligencePipeline:
         self.last = {"cover": cover, "forecast": {"model": bundle.model, "source": bundle.source,
                                                    "reason": bundle.reason, **self.forecast.accuracy()}}
         ws.extras = {**getattr(ws, "extras", {}), **self.last,
-                     "risk": [r.as_dict() for r in risks.values()]}
+                     "risk": [r.as_dict() for r in risks.values()], "impact_meter": self.meter.summary()}
         for (sid, f), r in risks.items():
             STOCKOUT_PROB.labels(station=sid, fuel=f).set(r.prob_12h)
             STATION_INV.labels(station=sid, fuel=f).set(r.inventory)
