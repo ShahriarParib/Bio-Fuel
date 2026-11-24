@@ -288,7 +288,37 @@ Nothing here describes real fuel infrastructure.
 <!-- New entries go here, one per block (B1-B8, E1-E9). Copy the template below. -->
 
 ## 5. What we discovered about the simulator
-*(Written up on submission day, with the measurements behind each finding.)*
+
+Everything below was measured against the official image (`asifmahmoud414/bup-fuel-supply-simulator:1.0.0`), not
+read from documentation. The image is deterministic — same seed, same world — so each finding is reproducible, and
+several of them changed the design rather than just the code.
+
+### Findings that changed what we build
+
+| # | What we found | How we found it | What it changed |
+|---|---|---|---|
+| 1 | **`/v1/health` answers `ok` while every real call is failing.** It bypasses fault injection. | Injected `unavailable`, watched health stay green while `/v1/stations` returned errors. | Health is judged from *real traffic* only — breaker state, error ratio, p95, stale header (`state/health.py`). A component is never called healthy because it said so. |
+| 2 | **The capacity check ignores fuel already in transit.** A shipment that fits on paper overflows on arrival, and the surplus is simply lost. | Planned to 100 % of capacity with another load in flight; litres vanished. | Constraint rule 7: projected inventory *including in-flight* must stay ≤ 98 % of capacity at the arrival tick. Across every evaluation run we lose **0 L** to overflow. |
+| 3 | **A closed station still accrues demand, but its inventory does not fall.** | Crisis scenario: 80 L lost to overflow with no obvious cause; traced to a station outage overlapping the arrival. | `PlanningState.demand()` returns 0 for a station that is closed at that tick, so we stop over-estimating the room a tank will have. |
+| 4 | **The per-depot dispatch cap is per tick and shared by all fuels.** | Submitted DIESEL and OCTANE from one depot in the same tick; the second was refused although each was under the cap. | The planner books the cap per depot per tick across fuels (`heuristic.py`, and as an LP constraint). |
+| 5 | **A route disruption that activates at the departure step fails the allocation with no refund.** Disruption *during* transit is harmless. | Scripted a disruption starting exactly at departure, then one mid-transit. | We block a departure if a non-resolved disruption overlaps `[t, t+1]` — one tick of margin, because the order of event activation vs departure inside a step is undocumented. |
+| 6 | **Demand history is returned newest-first.** | 12 rows per tick were expected; only one was being stored. | Ingest sorts oldest-first; the first sync pulls the full window. Silently losing 11/12 of your training data is the kind of bug that makes a forecast look mysteriously bad. |
+| 7 | **Only the *current* `demand_multiplier` is exposed**, but every `demand_spike` event keeps its start/end tick and factor, even after it resolves. | Compared sampled multipliers against the event list while running fast. | Past multipliers are *reconstructed* from events instead of sampled (`intelligence/series.py`). Sampling misses ticks whenever the simulator outruns our cycle. |
+| 8 | **Fuel arrives at tick `T + k + 1`**, not `T + k`. | Timed allocations end to end. | Arrival ticks, risk-after windows and ETA displays all use the +1. |
+| 9 | **A route already disrupted at creation is rejected with 409 and nothing is lost.** | Deliberately submitted onto a disrupted route. | Safe to treat 409 as "not sent" and re-plan, instead of assuming fuel is in limbo. |
+| 10 | **`stream_disconnect` only refuses *new* SSE connections**; an established stream keeps flowing. | Injected the fault and watched an open stream continue. | The F5 drill restarts the engine *during* the fault, otherwise the drill proves nothing. The platform treats SSE as a trigger and REST as truth anyway. |
+| 11 | **Demand is a function of `(seed, tick, station, fuel)` and the event multipliers — it does not depend on inventory.** | Compared demand series across runs where we shipped differently. | This is what makes the shadow twin honest: a counterfactual can project *our* decisions without the simulator, because our decisions cannot change the demand process. |
+| 12 | **The world is fully deterministic.** The reference benchmark reproduced exactly (crisis, 288 ticks, service level 0.991). | Re-ran the same scenario and seed repeatedly. | Every number in `docs/evidence/` is reproducible, and the decision-quality gate in CI can assert exact thresholds instead of ranges. |
+
+### What this taught us in general
+
+* **Never trust a health endpoint you did not measure.** Finding 1 is the one we would keep if we could keep only
+  one: the difference between "the dependency says it is fine" and "our last 30 seconds of real calls say it is
+  fine" is the difference between a dashboard and an operations platform.
+* **Read the failure, not the success.** Findings 2, 3 and 5 all cost us fuel or shipments before we understood
+  them, and each one was found by asking why a number was slightly wrong rather than by reading an API shape.
+* **Reconstruct, don't sample.** Findings 6 and 7 are the same lesson twice: when a system exposes history, use the
+  history. Polling a live value is a lossy approximation that fails exactly when the system is under load.
 
 ## 6. Requirement → evidence
 
@@ -309,7 +339,89 @@ Nothing here describes real fuel infrastructure.
 | 20.11 | Final demo | `docs/demo-runbook.md` | planned |
 
 ## 7. Questions we expect, and our answers
-*(Filled in as decisions are made; see also `docs/assumptions.md`.)*
+
+Short answers, each with the file or report that backs it. See also `docs/assumptions.md` for the ADRs and the
+deviations log.
+
+### About the decisions
+
+**"Is this actually intelligent, or just a rule engine?"**
+It is a rolling-horizon linear program over the whole network (PuLP/CBC), fed by a forecast with calibrated
+intervals and a Monte-Carlo stockout probability. The heuristic exists as a *fallback*, not as the product. You can
+see the difference: on the 6-day baseline both reach the same total service level, but the optimiser lifts the
+worst-served station from 0.868 to 0.9215 — that is the LP trading across stations in a way a greedy rule cannot.
+`evaluation/harness.py --matrix`, `docs/evidence/evaluation.md`.
+
+**"Does it ever make things worse than doing nothing?"**
+No run, in any scenario, with any policy, produced a failed shipment or lost a litre to overflow. That is asserted
+in CI, not just observed: the decision-quality gate fails the build on `--assert-no-failures` and any overflow.
+
+**"Why not a neural network / reinforcement learning?"**
+We measured the ceiling first. The demand process is `profile × multiplier × bounded noise`, which puts the best
+achievable forecast error at roughly 4.5-5.8 % WAPE. Our structural model reaches 5.8 %. A heavier model is
+competing for the last fraction of a percent while costing explainability and determinism, both of which this
+domain needs more. ADR-06, journal B3.
+
+**"What happens when the optimiser cannot solve?"**
+It falls back to the heuristic, marks the decision `fallback_reason`, lowers confidence, and the console says so.
+Autopilot will not execute below the confidence gate, so a degraded plan reaches a human instead of a truck.
+
+### About the AI
+
+**"Where exactly is the LLM, and what would happen if it lied?"**
+Only in explanations, never in planning. And it cannot lie with numbers: every figure in its wording is checked
+against the figures the platform computed, and a mismatch means the answer is discarded and the operator reads our
+own labelled sentence instead. `docs/evidence/assistant.md` shows the guard discarding both an invented percentage
+and a subtly wrong litre count.
+
+**"What if the model is down during the demo?"**
+Then nothing visible breaks. It happened to us: the pinned model returned `503` repeatedly while we were building,
+and the console kept explaining decisions from the written summaries. That is why there is a spare model and why
+the badge always says which source you are reading.
+
+### About resilience
+
+**"What do you do when the simulator goes down?"**
+Serve the last good state with its age shown, stop writing, open the breaker, and after 60 s enter SAFE_HOLD —
+plus a printable break-glass plan at `/breakglass/latest.html` that survives the engine itself dying. 11 of 11
+drills pass with detection in 0.6-9 s and unattended recovery in 0-25 s. `docs/evidence/resilience.md`.
+
+**"How do you know the recovery is real and not just a green light?"**
+Because a drill once lied to us. A sticky `demand_fetch_failed` flag left autopilot silently disabled after every
+outage while health said NORMAL and every drill reported "recovered". We fixed the flag, added a regression test,
+and tightened the drill criterion so recovery now requires the *decision inputs* to be trusted again, not just the
+HTTP checks to pass. Journal B7.
+
+**"Can two engines ever dispatch the same fuel twice?"**
+No, by construction in both runtimes: one engine container under Compose, and `replicas: 1` with
+`strategy: Recreate` plus a rendered-manifest assertion in CI under Kubernetes. Allocations also carry idempotency
+keys tied to the simulation run row, so a retry after a timeout cannot duplicate a shipment.
+
+### About operations
+
+**"How does this scale?"**
+The api is the only stateless part and the only part that scales. The load test measured ~50 concurrent consoles
+per 0.5-CPU replica; the HPA encodes exactly that, and we watched it go from 2 to 5-6 replicas under a 300-VU spike with
+zero 5xx (6 is the chart's ceiling, and 300 VUs is exactly where that measurement says it should land). `docs/evidence/loadtest-report.md`, `docs/evidence/kubernetes.md`.
+
+**"What is your SLO, and what happens when you breach it?"**
+The SLO that matters is a domain one: fuel service level ≥ 99 %. When the error budget runs low we impose a
+**change freeze** — policy switches need an explicit override, chaos injects need a supervisor — and the remedy
+keeps running. We tried the textbook "turn autopilot off" version first and measured it making an outage worse
+(99 % → 81 %), which is why it is not what we ship. Journal B7.
+
+**"How do you deploy, and what if a release is broken?"**
+Images are built once and promoted. `scripts/deploy.sh` runs a health gate (containers running, crash-loop fast
+fail, api reports the new version, engine ready, status not Down, smoke) and rolls back automatically. Demonstrated:
+a deliberately broken release was rejected after 60 s and the previous version was healthy again 7-9 s later.
+
+### About the work
+
+**"What is the one thing you would do differently?"**
+Run the drills *earlier*. Four of our most serious bugs — the sticky degraded flag, the breaker counting retries,
+the error-budget policy backfiring, and the forecast band collapsing on cold start — were invisible to unit tests
+and only appeared under injected failure. The drills are not a late-stage demo; they are the test suite that found
+the real defects.
 
 ---
 
