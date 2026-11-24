@@ -80,8 +80,8 @@ class GeminiClient:
     api_key: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
     model: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL", DEFAULT_MODEL))
     spare_model: str = field(default_factory=lambda: os.getenv("GEMINI_SPARE_MODEL", DEFAULT_SPARE))
-    timeout_s: float = field(default_factory=lambda: float(os.getenv("LLM_TIMEOUT_SEC", "4")))
-    budget_s: float = field(default_factory=lambda: float(os.getenv("LLM_BUDGET_SEC", "6")))
+    timeout_s: float = field(default_factory=lambda: float(os.getenv("LLM_TIMEOUT_SEC", "6")))
+    budget_s: float = field(default_factory=lambda: float(os.getenv("LLM_BUDGET_SEC", "9")))
     # measured: a real decision's facts produce ~150 output tokens, and a 220 cap cut answers mid-sentence.
     # Only tokens actually generated are billed, so a generous cap costs nothing and removes a failure mode.
     max_output_tokens: int = 600
@@ -189,7 +189,7 @@ class GeminiClient:
             raise _unavailable(f"{model}: {outcome} (HTTP {resp.status_code})", retryable=retryable)
 
         try:
-            text, finish = _first_text(resp.json())
+            text, finish = _answer_text(resp.json())
         except Exception as err:
             LLM_REQUESTS.labels("http_error").inc()
             raise _unavailable("unreadable response from the provider", retryable=True) from err
@@ -210,12 +210,19 @@ class GeminiClient:
             log.warning("llm.cooldown_opened", failures=self._failures, seconds=self.cooldown_s)
 
 
-def _first_text(body: dict) -> tuple[str, str]:
-    """Return (text, finishReason). An empty finishReason means the provider did not say."""
+def _answer_text(body: dict) -> tuple[str, str]:
+    """Return (text, finishReason), joining EVERY text part of the first candidate.
+
+    The provider is free to split one answer across several `parts`, and it does. Reading only `parts[0]` gave us a
+    sentence that stopped mid-clause while `finishReason` said `STOP` - a truncation our guard could not see
+    because, as far as the provider was concerned, nothing had gone wrong. Parts flagged `thought` are reasoning,
+    not the answer, and are dropped.
+    """
     for cand in body.get("candidates") or []:
-        for part in (cand.get("content") or {}).get("parts") or []:
-            if part.get("text"):
-                return str(part["text"]), str(cand.get("finishReason") or "")
+        parts = [str(p.get("text") or "") for p in ((cand.get("content") or {}).get("parts") or [])
+                 if p.get("text") and not p.get("thought")]
+        if parts:
+            return "".join(parts), str(cand.get("finishReason") or "")
     return "", str(((body.get("candidates") or [{}])[0]).get("finishReason") or "")
 
 

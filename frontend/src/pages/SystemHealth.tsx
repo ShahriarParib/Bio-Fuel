@@ -115,7 +115,10 @@ function IncidentRow({ inc }: { inc: Incident }) {
             <span className={clsx("font-semibold", KIND_CLS[e.kind])}>{e.kind}</span> {e.text}</li>
         ))}
       </ol>
-      <div className="mt-1"><PlainWords kind="incidents" id={inc.id} /></div>
+      <div className="mt-1 flex flex-wrap gap-4">
+        <PlainWords kind="incidents" id={inc.id} />
+        {inc.status === "RESOLVED" && <PlainWords kind="incidents" id={inc.id} what="postmortem" />}
+      </div>
     </li>
   );
 }

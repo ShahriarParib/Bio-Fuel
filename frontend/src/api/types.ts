@@ -158,3 +158,9 @@ export interface AssistantStatus {
   cache_ttl_s: number;
   guarantees: string[];
 }
+
+/** The shift-handover note: an `Explained` plus the window it covers. */
+export interface ShiftSummary extends Explained {
+  window_ticks: number;
+  tick: number;
+}

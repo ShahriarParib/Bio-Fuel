@@ -20,7 +20,7 @@ with a human in the loop (or on a guarded autopilot), and keeps working when its
 | Can I see it? | 4 Grafana dashboards, 16 alerts, 4 SLOs incl. a **domain SLO (fuel service level ≥ 99 %)** | [observability.md](docs/evidence/observability.md) |
 | Does it hold load? | k6 through nginx, api ×1 vs ×3, spike to 300 VUs; the engine never falls behind | [loadtest-report.md](docs/evidence/loadtest-report.md) |
 | Does it keep itself running? | on Kubernetes: a killed component is replaced in **7 s** while the platform keeps deciding on a labelled fallback, and the api autoscales **2 → 5-6** replicas under a 300-VU spike with **0 5xx** and ~8 ms p95 | [kubernetes.md](docs/evidence/kubernetes.md) |
-| Can a non-engineer read it? | any recommendation or incident explains itself in plain words; the model may not invent a number - every figure is checked against ours, and a failed check falls back to our own labelled summary | [assistant.md](docs/evidence/assistant.md) |
+| Can a non-engineer read it? | any recommendation or incident explains itself in plain words, and a shift ends with a handover note and a postmortem; the model may not invent a number - every figure is checked against ours, and a failed check falls back to our own labelled summary | [assistant.md](docs/evidence/assistant.md) |
 | Can it be shipped safely? | CI: tests → e2e on the official simulator image → decision-quality gate → Trivy → GHCR; `deploy.sh` with health gate and **automatic rollback** | [ci.yml](.github/workflows/ci.yml), [runbook](docs/runbook.md) |
 
 Every number above comes from a script in this repo run against the official simulator image
