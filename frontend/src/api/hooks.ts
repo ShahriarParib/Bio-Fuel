@@ -2,7 +2,7 @@
  *  serves cached state (ETag) so a 1 s poll is cheap. */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, setToken } from "./client";
-import type { Alert, AssistantStatus, Decision, Explained, Incident, ListOf, N1Report, ShiftSummary, SystemStatus, WorldState } from "./types";
+import type { Alert, AssistantStatus, Decision, Explained, FairnessReport, Incident, ListOf, N1Report, ShiftSummary, SystemStatus, WorldState } from "./types";
 
 const TOKEN_KEY = "fsip.operatorToken";
 
@@ -69,6 +69,10 @@ export const useShiftSummary = (enabled: boolean, windowTicks = 96) =>
 /** The N-1 contingency scan. The engine recomputes it every 16 ticks, so polling faster buys nothing. */
 export const useContingency = () =>
   useQuery({ queryKey: ["n1"], queryFn: () => api<N1Report>("/lab/n1"), refetchInterval: 20_000, retry: false });
+
+/** Who is going short. Recomputed by the engine every cycle, so a 3 s poll is plenty. */
+export const useFairness = () =>
+  useQuery({ queryKey: ["fairness"], queryFn: () => api<FairnessReport>("/fairness"), refetchInterval: 3000, retry: false });
 
 export const useAssistant = () =>
   useQuery({ queryKey: ["assistant"], queryFn: () => api<AssistantStatus>("/assistant"), staleTime: 30_000 });

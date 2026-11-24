@@ -120,7 +120,7 @@ def run(scenario: str, policy: str, ticks: int) -> dict:
         "shipped_liters": round(m["allocation_liters"]), "allocation_failures": m["allocation_failures"],
         "failed_liters": round(failed_l), "overflow_liters": round(overflow), "overflow_events": overflow_events,
         "depot_clipped_liters": round(max(0, clipped)),
-        "min_station_sl": min(per.values()), "per_station_sl": per,
+        "min_station_sl": min(per.values()), "per_station_sl": per, "jain": _jain(per.values()),
         "decide_ms_p50": statistics.median(plan_ms) if plan_ms else None,
         "decide_ms_p95": plan_ms[int(0.95 * (len(plan_ms) - 1))] if plan_ms else None,
         "optimizer_fallbacks": fallbacks,
@@ -137,6 +137,19 @@ SCENARIO_TEXT = {
               "delay of 6 h and a 4 h station outage, overlapping",
     "single_route_cut": "the only routes to Tongi and Cox's Bazar cut for 10 h during a ×1.4 demand spike",
 }
+
+
+def _jain(values) -> float | None:
+    """Jain's fairness index over the per-station service levels: (Sum x)^2 / (n * Sum x^2).
+
+    The headline service level is an average, and an average cannot be unfair: 99% served can be every station
+    comfortable, or three full and one dry. This number tells those apart.
+    """
+    xs = [float(v) for v in values]
+    if not xs:
+        return None
+    sq = sum(v * v for v in xs)
+    return round(sum(xs) ** 2 / (len(xs) * sq), 4) if sq > 0 else None
 
 
 def _pct(x: float) -> str:
@@ -188,15 +201,19 @@ def write_report(rows: list[dict], out: Path) -> None:
               "| Depot clipped L | supply that arrived at a full depot and was lost because nobody moved fuel out |",
               "| Shipped L | litres dispatched by the platform |",
               "| Decide p95 ms | 95th-percentile time to produce a plan |",
+              "| Jain | fairness of the per-station service levels: 1.0 = every station served equally, "
+              "1/n = one station took everything. An average service level cannot be unfair; this can |",
               "", "## Results", "",
-              "| Scenario | Ticks | Policy | Service level | Unmet L | Worst station SL | Failed shipments "
-              "| Overflow L | Depot clipped L | Shipped L | Decide p95 ms |",
-              "|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+              "| Scenario | Ticks | Policy | Service level | Unmet L | Worst station SL | Jain | "
+              "Failed shipments | Overflow L | Depot clipped L | Shipped L | Decide p95 ms |",
+              "|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for r in rows:
         mark = " *" if r.get("note") else ""
+        jain = "—" if r.get("jain") is None else f"{r['jain']:.4f}"
         lines.append(f"| {r['scenario']}{mark} | {r['ticks']} | {r['policy']} | {r['service_level']:.4f} "
                      f"| {r['unmet_liters']:,} "
-                     f"| {r['min_station_sl']:.4f} | {r['allocation_failures']} | {r['overflow_liters']:,} "
+                     f"| {r['min_station_sl']:.4f} | {jain} "
+                     f"| {r['allocation_failures']} | {r['overflow_liters']:,} "
                      f"| {r['depot_clipped_liters']:,} | {r['shipped_liters']:,} | {r['decide_ms_p95'] or '—'} |")
     notes = [r for r in rows if r.get("note")]
     if notes:

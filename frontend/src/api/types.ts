@@ -201,3 +201,23 @@ export interface N1Report {
   single_points_of_failure: { asset: string; label: string; serves: string | null; kind: string }[];
   only_working_route: { asset: string; label: string; serves: string | null; kind: string }[];
 }
+
+/** The distribution behind the headline service level, plus the fuel budget. */
+export interface FairnessReport {
+  tick: number;
+  window_ticks: number;
+  per_station: Record<string, number>;
+  jain: number | null;
+  min_station: number | null;
+  worst_station: string | null;
+  spread: number | null;
+  scarcity: Record<string, boolean>;
+  cover_ratio: Record<string, number | null>;
+  cover_ratio_by_region: Record<string, Record<string, number | null>>;
+  supply_ends_tick: number | null;
+  living_off_stock: boolean;
+  policy: string;
+  /** Whether the binding constraint is supply, distribution, waiting on a human, or nothing. */
+  diagnosis: { constraint: "supply" | "distribution" | "approval" | "none"; detail: string } | null;
+  thresholds: { enter_below: number; exit_above: number; enter_cycles: number; exit_cycles: number };
+}

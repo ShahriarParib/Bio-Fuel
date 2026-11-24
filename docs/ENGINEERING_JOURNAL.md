@@ -309,6 +309,19 @@ Nothing here describes real fuel infrastructure.
 - **Judging criterion:** resilience and domain depth, intelligence component, operator interface, honesty of evidence.
 - **Demo line:** "Everything is green right now. Here is the route that, if it goes, nothing else can reach — and here is how many litres that would cost, worked out before it happens rather than after."
 
+### E4: Scarcity and fairness — who goes short, and why (2026-11-25)
+- **Goal:** make the platform honest about the hours when optimising is beside the point, because there is not enough fuel for everyone — and prove that when it recovers, the recovery reaches every station rather than the nearest ones.
+- **What we built:** `services/engine/app/risk/scarcity.py` (fuel budget as a cover ratio per fuel and per region, scarcity hysteresis, Jain index, per-station service level, and the supply-vs-distribution diagnosis); wired into the intelligence pipeline with a CRITICAL alert per scarce fuel; `GET /api/fairness`; the `Fairness` panel leading the Risk page; four metrics; `scripts/demo/fairness_evidence.py`; the Jain index added to the evaluation harness and its results table.
+- **How / approach:** the headline service level is an average, and an average cannot be unfair — 99 % served is either every station comfortable or three full and one dry for a day. So the console never shows only the headline: it shows each station's own service level, names the worst one, and reports the Jain index, which is scale-invariant and therefore judges the *shape* of the distribution rather than how much fuel there was. Entering scarcity is deliberately sticky (below 1.0 for 2 cycles to enter, above 1.1 for 4 to leave) because a banner that blinks is a banner an operator cannot act on, and leaving early is the expensive mistake.
+- **Tools:** no new dependencies; PuLP's existing max-min fairness term is what the scarcity policy leans on.
+- **Evidence:** `docs/evidence/fairness.md`, recorded live. We left the stack in advisory mode overnight: by morning **every station was dry and the depots still held 67,520 L of diesel**. Switching autopilot on brought all four stations from **0 % to 93.5-97 %** with a Jain index of **0.9997** and a spread of 3.4 % — the recovery reached everyone, not just the nearest station. 29 engine tests, 6 console tests.
+- **Problems hit → fix:**
+  1. **The most valuable feature came out of our own mistake.** Every station dry with full depots is not scarcity, and showing a red number there would send an operator hunting for fuel that was never missing. The report now names the binding constraint: `supply` (not enough fuel, however well routed), `distribution` (fuel exists but is not reaching stations), or `approval` (advisory mode with recommendations pending — exactly our case, and it said so in those words). `supply` outranks the others, because routing advice is a distraction when there genuinely is not enough.
+  2. **`scarcity` had been a field that was never written.** It sat in the published state as a permanent `{DIESEL: false, …}` — three booleans that looked like a feature and were a placeholder. It is now computed every cycle from a real budget.
+  3. The scarcity alert first tried to fire once on entering and resolve once on leaving; the alert manager resolves by *absence*, so it is now raised every cycle the shortfall lasts and clears itself when we stop raising it.
+- **Judging criterion:** domain depth and fairness, intelligence, observability, honesty of evidence.
+- **Demo line:** "Service level says 46 %. That number tells you nothing about who suffered. This does: here is every station, here is the worst one by name, and here is why — the fuel was never missing, it was waiting for someone to click approve."
+
 <!-- New entries go here, one per block (B1-B8, E1-E9). Copy the template below. -->
 
 ## 5. What we discovered about the simulator
@@ -361,6 +374,7 @@ several of them changed the design rather than just the code.
 | 20.7 | Orchestration (beyond the brief) | Helm chart + kind, `docs/evidence/kubernetes.md` | done (E1) |
 | §16 | Generative AI in operations | `docs/evidence/assistant.md` | done (E2) |
 | §21 | Proactive risk analytics | N-1 contingency, `docs/evidence/contingency.md` | done (E3) |
+| §17 | Scarcity and fairness | `docs/evidence/fairness.md` | done (E4) |
 | 20.11 | Final demo | `docs/demo-runbook.md` | planned |
 
 ## 7. Questions we expect, and our answers
