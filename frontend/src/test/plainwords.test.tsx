@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PlainWords } from "@/components/PlainWords";
+import { ShiftBrief } from "@/components/ShiftBrief";
 
 const wrap = (ui: React.ReactNode) =>
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>);
@@ -46,5 +47,37 @@ describe("PlainWords", () => {
     wrap(<PlainWords kind="incidents" id={3} />);
     fireEvent.click(screen.getByTestId("explain-btn"));
     await waitFor(() => expect(screen.getByTestId("explain-box")).toHaveTextContent("details above are unchanged"));
+  });
+});
+
+describe("ShiftBrief", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("explains what the note will contain before costing anything", () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    wrap(<ShiftBrief />);
+    expect(screen.getByTestId("shift-brief")).toHaveTextContent("what the next operator should watch first");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("shows the note with its source and the window it covers", async () => {
+    stub({ text: "The network served 100% of demand this shift.", source: "gemini",
+           model: "gemini-3.5-flash-lite", latency_ms: 2032, cached: false, note: "", grounded_in: {},
+           window_ticks: 96, tick: 192 });
+    wrap(<ShiftBrief />);
+    fireEvent.click(screen.getByTestId("shift-btn"));
+    await waitFor(() => expect(screen.getByTestId("shift-text")).toHaveTextContent("served 100% of demand"));
+    expect(screen.getByTestId("shift-source")).toHaveTextContent("re-worded by gemini-3.5-flash-lite");
+    expect(screen.getByTestId("shift-brief")).toHaveTextContent("covering 96 ticks up to t=192");
+  });
+
+  it("hands over the platform's own sentence when the model is unavailable", async () => {
+    stub({ text: "Over the last 96 ticks the network served 100% of demand.", source: "template", model: "",
+           latency_ms: 0, cached: false, note: "no API key configured", grounded_in: {},
+           window_ticks: 96, tick: 192 });
+    wrap(<ShiftBrief />);
+    fireEvent.click(screen.getByTestId("shift-btn"));
+    await waitFor(() => expect(screen.getByTestId("shift-source")).toHaveTextContent("the platform's own summary"));
   });
 });

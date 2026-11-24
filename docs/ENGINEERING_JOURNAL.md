@@ -282,6 +282,15 @@ Nothing here describes real fuel infrastructure.
   4. The quantities read like machine output ("2780.0 liters") because the facts carried raw floats — rounded at the fact-building step, so the model repeats human numbers.
   5. The assistant badge crashed the System Health page in a test that stubbed every fetch with the same payload; made it tolerant of a partial answer, which is also correct in production.
   6. `python-jose`-style housekeeping: the unused `ANTHROPIC_API_KEY`/`LLM_MODEL` entries were removed from the local `.env` rather than left lying around, and `.env.example` documents the assistant as optional.
+  7. **A truncated answer slipped past the truncation guard, and the evidence file is what caught it.** The provider is free to split one answer across several `parts`; we read `parts[0]` only, so an operator was shown "…and has now recovered. The" while `finishReason` said `STOP` — nothing had gone wrong as far as the provider was concerned. Now every non-`thought` part is joined (83 → 276 characters on the same incident), with five regression tests. We found it because we read the generated evidence instead of trusting that it was generated.
+
+#### E2b: the two artefacts a human acts on (same day)
+- **What we added:** `GET /api/summary?window_ticks=96` — the handover note an outgoing operator leaves — and `GET /api/incidents/{id}/postmortem`, plus `ShiftBrief` on Overview (with copy-to-clipboard, because a handover's real destination is a chat message) and a postmortem button on every resolved incident.
+- **Why these two specifically:** they are where a wrong number would travel furthest. An explanation is read next to the data it describes; a handover gets pasted into a chat and a postmortem is read the next morning by people who were not there. Both go through the same grounding guard.
+- **Problems hit → fix:**
+  1. **The model counted the list instead of the shift.** We showed it four example incidents and it wrote "four incidents closed themselves" — true of the list, false of the shift (there were nine). Counts are now passed explicitly alongside the truncated examples.
+  2. **The postmortem called a consequence a fix:** it described "engine mode → NORMAL" as how the platform mitigated the outage. The facts now separate `actions_the_platform_took_to_keep_serving` from `operating_mode_transitions_observed`, and the instruction says a mode transition is never an action.
+  3. A 4 s per-attempt timeout was too tight for the measured 1.5-3.2 s responses, so the fallback fired on healthy calls; raised to 6 s with a 9 s budget across both models. And the handover opened with "Salam," until the instruction banned greetings.
 - **Judging criterion:** generative-AI usage (brief §16), operator interface, observability, honesty of evidence.
 - **Demo line:** "This is the explanation an operator reads. It was written by a model — and if that model had put a single number in it that we did not compute, you would be reading our sentence instead, and the screen would say so."
 

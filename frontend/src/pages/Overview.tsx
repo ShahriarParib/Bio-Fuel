@@ -5,6 +5,7 @@ import { FUELS } from "@/api/types";
 import { ImpactMeter } from "@/components/ImpactMeter";
 import { NetworkGraph } from "@/components/NetworkGraph";
 import { Card, Empty, ErrorBox, FuelBar, Kpi, RiskChip, SeverityBadge } from "@/components/ui";
+import { ShiftBrief } from "@/components/ShiftBrief";
 import { hours, liters, pct, RISK_ORDER, shortName } from "@/lib/format";
 
 export default function Overview() {
@@ -22,6 +23,7 @@ export default function Overview() {
 
   return (
     <div className="space-y-4" data-testid="overview">
+      <ShiftBrief />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Kpi label="Service level" value={pct(sl, 2)} sub="simulator ground truth" tone={sl >= 0.99 ? "good" : sl >= 0.95 ? "warn" : "bad"} testId="kpi-sl" />
         <Kpi label="Unmet demand" value={liters(s.metrics.unmet_liters)} sub={`served ${liters(s.metrics.served_liters)}`} tone={s.metrics.unmet_liters > 0 ? "bad" : "good"} />

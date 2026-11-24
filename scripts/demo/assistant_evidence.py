@@ -28,10 +28,13 @@ def get(path: str) -> dict:
         return json.load(r)
 
 
-def explain(kind: str, item_id: int) -> tuple[dict, int]:
+def explain(kind: str, item_id: object, what: str = "explain") -> tuple[dict, int]:
+    """`kind`/`item_id`/`what` → /api/<kind>/<id>/<what>; an empty item_id means the path is already complete."""
+    path = f"/api/{kind}" if item_id == "" else f"/api/{kind}/{item_id}"
+    if item_id != "" and not str(item_id).endswith(("postmortem", "explain")):
+        path += f"/{what}"
     t0 = time.time()
-    body = get(f"/api/{kind}/{item_id}/explain")
-    return body, int((time.time() - t0) * 1000)
+    return get(path), int((time.time() - t0) * 1000)
 
 
 def row(label: str, body: dict, wall_ms: int) -> str:
@@ -57,6 +60,14 @@ def main() -> None:
         inc, inc_ms = explain("incidents", i_id)
         inc_rows.append(row(f"Incident #{i_id} ({incidents[0]['component']})", inc, inc_ms))
         inc_sample = inc
+
+    # --- the two artefacts written for a human to act on --------------------------------------------------
+    shift, shift_ms = explain("summary?window_ticks=96", "")
+    pm, pm_ms, pm_id = None, 0, None
+    resolved = [i for i in incidents if i.get("status") == "RESOLVED"]
+    if resolved:
+        pm_id = resolved[0]["id"]
+        pm, pm_ms = explain("incidents", f"{pm_id}/postmortem")
 
     # --- the guard, run against the same function the api calls -------------------------------------------
     facts = first["grounded_in"]
@@ -114,8 +125,25 @@ or *the platform's own summary*.
 
 {('> ' + inc_sample['text']) if inc_sample else ''}
 
-The second request is the same question: it is answered from cache in a few milliseconds and costs nothing. The
-cache key is a hash of the facts, so it invalidates itself the moment the underlying decision changes.
+{"The second request is the same question, answered from cache in a few milliseconds at no cost." if second["cached"] else "The first call fell back to the written summary (the provider did not answer in time), so there was nothing to cache and the second call went to the model: exactly the behaviour the fallback exists for."} The cache key is a hash of the facts, so it invalidates itself the moment the underlying decision changes.
+
+## Two things written for a human to act on
+
+An explanation answers "why this?". These two answer "what do I do now?", and they are the places where a wrong
+number would travel furthest — a handover note gets pasted into a chat, a postmortem gets read the next morning by
+people who were not there. Both go through the same guard.
+
+**Shift handover** (`GET /api/summary?window_ticks=96`, {shift['source']}, {shift_ms} ms) — the note an outgoing
+operator leaves behind:
+
+> {shift['text']}
+
+{(f"**Postmortem** for incident #{pm_id} (`GET /api/incidents/{pm_id}/postmortem`, {pm['source']}, {pm_ms} ms):" + chr(10) + chr(10) + "> " + pm['text']) if pm else ''}
+
+Counts in the handover are given to the model explicitly rather than left to be counted off a list: the lists it
+sees are truncated to four examples, so a model counting items would state a number that is true of the list and
+false of the shift. In the postmortem, the facts separate *actions the platform took* from *operating-mode
+transitions observed*, because an early draft described a mode change as if it were the fix.
 
 ## The guard, exercised
 
@@ -155,9 +183,11 @@ why the client now carries a spare model and why the primary is pinned to one we
 ## Where it is in the console
 
 * **Decisions** - click a decision number to have it explained.
-* **System health → Incidents** - every incident can be explained; the card header shows whether the assistant is
-  available at all.
-* Screenshots: `screenshots/e2-explain-decision.png`, `screenshots/e2-explain-incident.png`.
+* **System health → Incidents** - every incident can be explained, and a resolved one can be written up as a
+  postmortem; the card header shows whether the assistant is available at all.
+* **Overview** - the shift-handover card, with a copy button for pasting into a chat or a logbook.
+* Screenshots: `screenshots/e2-explain-decision.png`, `screenshots/e2-explain-incident.png`,
+  `screenshots/e2-shift-handover.png`, `screenshots/e2-postmortem.png`.
 """, encoding="utf-8")
     print(f"wrote {OUT}")
     print(f"decision explanation source={first['source']} model={first.get('model')} "

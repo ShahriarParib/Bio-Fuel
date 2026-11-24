@@ -2,7 +2,7 @@
  *  serves cached state (ETag) so a 1 s poll is cheap. */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, setToken } from "./client";
-import type { Alert, AssistantStatus, Decision, Explained, Incident, ListOf, SystemStatus, WorldState } from "./types";
+import type { Alert, AssistantStatus, Decision, Explained, Incident, ListOf, ShiftSummary, SystemStatus, WorldState } from "./types";
 
 const TOKEN_KEY = "fsip.operatorToken";
 
@@ -46,12 +46,23 @@ export const useIncidents = () =>
 
 /** Plain-language explanation, fetched only when the operator asks for it (it may cost an LLM call).
  *  The api caches by content, so re-opening the same card is free; we keep it in the query cache too. */
-export const useExplain = (kind: "decisions" | "incidents", id: number, enabled: boolean) =>
+export const useExplain = (kind: "decisions" | "incidents", id: number, enabled: boolean,
+                          what: "explain" | "postmortem" = "explain") =>
   useQuery({
-    queryKey: ["explain", kind, id],
-    queryFn: () => api<Explained>(`/${kind}/${id}/explain`),
+    queryKey: ["explain", kind, id, what],
+    queryFn: () => api<Explained>(`/${kind}/${id}/${what}`),
     enabled,
     staleTime: 10 * 60 * 1000,
+    retry: false,
+  });
+
+/** The handover note. Asked for explicitly: it is a paragraph a human will read once, not a live panel. */
+export const useShiftSummary = (enabled: boolean, windowTicks = 96) =>
+  useQuery({
+    queryKey: ["shift-summary", windowTicks],
+    queryFn: () => api<ShiftSummary>(`/summary?window_ticks=${windowTicks}`),
+    enabled,
+    staleTime: 5 * 60 * 1000,
     retry: false,
   });
 
