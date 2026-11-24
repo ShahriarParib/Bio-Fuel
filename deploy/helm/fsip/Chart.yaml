@@ -1,0 +1,6 @@
+apiVersion: v2
+name: fsip
+description: Fuel Supply Intelligence & Resilience Platform (simulator, engine, intelligence, api, frontend, data stores)
+type: application
+version: 1.0.0
+appVersion: "1.0.0-rc1"

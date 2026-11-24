@@ -1,0 +1,32 @@
+FSIP {{ .Chart.AppVersion }} is installed as release "{{ .Release.Name }}" in namespace {{ .Release.Namespace }}.
+
+  Operator console   http://localhost:3080      (NodePort {{ .Values.frontend.nodePort }})
+  Simulator admin    http://localhost:3800      (NodePort {{ .Values.simulator.nodePort }})
+  Break-glass plan   http://localhost:3080/breakglass/latest.html
+
+What is deployed, and why it is shaped this way:
+
+  engine          1 replica, strategy Recreate  -- the only writer to the simulator; two engines could
+                                                   dispatch the same fuel twice, so Kubernetes is told never
+                                                   to run a second one, not even for a second during an upgrade.
+  api             {{ .Values.api.autoscaling.minReplicas }}-{{ .Values.api.autoscaling.maxReplicas }} replicas, HPA at {{ .Values.api.autoscaling.targetCPUUtilizationPercentage }}% CPU   -- stateless reader; the load test measured ~50 concurrent
+                                                   consoles per 0.5-CPU replica, and this turns that number
+                                                   into an automatic rule.
+  frontend        {{ .Values.frontend.replicas }} replicas + PodDisruptionBudget -- the console never goes blank during a rollout.
+  intelligence    {{ .Values.intelligence.replicas }} replica                   -- optional by design: if it is gone the engine
+                                                   falls back to its own forecaster and says so in the UI.
+  redis/postgres  StatefulSets                 -- Redis is a pure cache the engine can rebuild; Postgres has a
+                                                   {{ .Values.postgres.storage }} volume for history.
+
+Useful commands:
+
+  kubectl -n {{ .Release.Namespace }} get pods,hpa
+  kubectl -n {{ .Release.Namespace }} logs -f deploy/{{ .Release.Name }}-engine
+  kubectl -n {{ .Release.Namespace }} delete pod -l app=intelligence     # self-heal + graceful degradation demo
+  bash scripts/k8s/demo.sh                                        # both proofs, recorded to evidence
+{{ if eq .Values.secrets.operatorToken "change-me-operator" }}
+WARNING: the default demo tokens are in use. On any shared cluster install with your own:
+  helm upgrade --install {{ .Release.Name }} deploy/helm/fsip \
+    --set secrets.operatorToken=... --set secrets.supervisorToken=... \
+    --set secrets.internalToken=... --set secrets.postgresPassword=...
+{{- end }}

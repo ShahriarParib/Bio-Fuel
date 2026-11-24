@@ -19,6 +19,7 @@ with a human in the loop (or on a guarded autopilot), and keeps working when its
 | What if things break? | **11 / 11 failure drills pass**: detected in 0.6-9 s, recovered with no human action in 0-25 s | [resilience.md](docs/evidence/resilience.md) |
 | Can I see it? | 4 Grafana dashboards, 16 alerts, 4 SLOs incl. a **domain SLO (fuel service level ≥ 99 %)** | [observability.md](docs/evidence/observability.md) |
 | Does it hold load? | k6 through nginx, api ×1 vs ×3, spike to 300 VUs; the engine never falls behind | [loadtest-report.md](docs/evidence/loadtest-report.md) |
+| Does it keep itself running? | on Kubernetes: a killed component is replaced in **7 s** while the platform keeps deciding on a labelled fallback, and the api autoscales **2 → 5-6** replicas under a 300-VU spike with **0 5xx** and ~8 ms p95 | [kubernetes.md](docs/evidence/kubernetes.md) |
 | Can it be shipped safely? | CI: tests → e2e on the official simulator image → decision-quality gate → Trivy → GHCR; `deploy.sh` with health gate and **automatic rollback** | [ci.yml](.github/workflows/ci.yml), [runbook](docs/runbook.md) |
 
 Every number above comes from a script in this repo run against the official simulator image
@@ -143,6 +144,7 @@ Branches: every change goes `feature/*` → `dev` (full check) → `main` (alway
 | policy evaluation matrix (~35 min) | `.venv/bin/python evaluation/harness.py --matrix` |
 | load test (~8 min, needs `make obs-up`) | `bash loadtest/run_loadtest.sh` |
 | metric contract | `bash scripts/check_metrics.sh` |
+| Kubernetes: cluster up · the two proofs | `make k8s-up` · `make k8s-demo` → `docs/evidence/kubernetes.md` |
 | release locally · deploy · rollback demo | `scripts/release_local.sh v1.0.0` · `scripts/deploy.sh v1.0.0 --local` · `scripts/demo/make_bad_release.sh v0.9.9-bad v1.0.0 && scripts/deploy.sh v0.9.9-bad --local` |
 
 ## Brief deliverables → where
@@ -156,6 +158,7 @@ Branches: every change goes `feature/*` → `dev` (full check) → `main` (alway
 | Operator interface | `frontend/` |
 | Architecture | [docs/architecture.md](docs/architecture.md) |
 | Deployment | `docker-compose.yml`, [ci.yml](.github/workflows/ci.yml), `scripts/deploy.sh`, [runbook](docs/runbook.md) |
+| Orchestration (optional) | Helm chart `deploy/helm/fsip` + kind cluster, [kubernetes.md](docs/evidence/kubernetes.md) |
 | Observability evidence | [observability.md](docs/evidence/observability.md) |
 | Resilience demonstration | [resilience.md](docs/evidence/resilience.md), `scripts/chaos/` |
 | Load-test evidence | [loadtest-report.md](docs/evidence/loadtest-report.md), `loadtest/` |
@@ -174,5 +177,6 @@ observability          Prometheus rules (alerts, SLOs), Alertmanager, Loki, Prom
 evaluation             policy evaluation harness and the e2e autopilot test
 scripts                smoke, deploy, chaos drills, metric contract, demo helpers
 loadtest               k6 scenarios and the report generator
+deploy                 Helm chart and kind cluster config for the Kubernetes deployment
 docs                   architecture, runbook, journal, assumptions, evidence
 ```

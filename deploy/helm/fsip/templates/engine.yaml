@@ -1,0 +1,114 @@
+{{/*
+The engine is the ONLY process that writes to the simulator. Two engines could dispatch the same fuel twice, so:
+  - replicas is fixed at 1 and there is no autoscaler;
+  - strategy Recreate: the old pod is stopped before the new one starts (RollingUpdate would briefly run two);
+  - a short outage is safe by design (the simulator keeps running, the engine rebuilds state on boot and idempotency
+    keys stop duplicate shipments), which is exactly what the F11 "engine killed" drill proves.
+A second container serves the break-glass plan from the shared volume, so the printable fallback stays reachable
+even while the engine process is dead or crash-looping.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-engine
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: engine, release: "{{ .Release.Name }}"}}
+  template:
+    metadata:
+      labels: {app: engine, release: "{{ .Release.Name }}"}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8100"
+        prometheus.io/path: /metrics/
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+    spec:
+      containers:
+        - name: engine
+          image: {{ include "fsip.image" (dict "svc" "engine" "root" $) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env: {{- include "fsip.env" . | nindent 12 }}
+          envFrom: {{- include "fsip.envfrom" . | nindent 12 }}
+          ports: [{containerPort: 8100}]
+          livenessProbe:
+            httpGet: {path: /health/live, port: 8100}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            # /health/ready stays 200 on cached state during a simulator outage: the engine is still useful then
+            httpGet: {path: /health/ready, port: 8100}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 6
+          resources: {{- toYaml .Values.engine.resources | nindent 12 }}
+          volumeMounts: [{name: breakglass, mountPath: /data/breakglass}]
+        - name: breakglass
+          image: {{ .Values.engine.breakglass.image }}
+          imagePullPolicy: IfNotPresent
+          ports: [{containerPort: 80}]
+          # probe the server root, not /breakglass/: that directory has no index and nginx answers 403 by design
+          readinessProbe: {httpGet: {path: /, port: 80}, initialDelaySeconds: 3, periodSeconds: 10}
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {cpu: 100m, memory: 64Mi}}
+          volumeMounts:
+            - {name: breakglass, mountPath: /usr/share/nginx/html/breakglass, readOnly: true}
+      volumes:
+        - name: breakglass
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-engine
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  selector: {app: engine, release: "{{ .Release.Name }}"}
+  ports: [{port: 8100, targetPort: 8100}]
+---
+{{/* Separate Service for the sidecar: it must answer even when the engine container is failing its probes. */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-breakglass
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  selector: {app: engine, release: "{{ .Release.Name }}"}
+  publishNotReadyAddresses: true
+  ports: [{port: 80, targetPort: 80}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-intelligence
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.intelligence.replicas }}
+  selector: {matchLabels: {app: intelligence, release: "{{ .Release.Name }}"}}
+  template:
+    metadata:
+      labels: {app: intelligence, release: "{{ .Release.Name }}"}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8200"
+        prometheus.io/path: /metrics/
+    spec:
+      containers:
+        - name: intelligence
+          image: {{ include "fsip.image" (dict "svc" "intelligence" "root" $) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env: {{- include "fsip.env" . | nindent 12 }}
+          envFrom: {{- include "fsip.envfrom" . | nindent 12 }}
+          ports: [{containerPort: 8200}]
+          livenessProbe: {httpGet: {path: /health/live, port: 8200}, initialDelaySeconds: 10, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /health/ready, port: 8200}, initialDelaySeconds: 5, periodSeconds: 5}
+          resources: {{- toYaml .Values.intelligence.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-intelligence
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  selector: {app: intelligence, release: "{{ .Release.Name }}"}
+  ports: [{port: 8200, targetPort: 8200}]
