@@ -164,3 +164,40 @@ export interface ShiftSummary extends Explained {
   window_ticks: number;
   tick: number;
 }
+
+/** One N-1 contingency finding: the cost of losing `asset` for `duration_ticks`. */
+export interface N1Finding {
+  asset: string;
+  kind: "route" | "depot" | "station";
+  label: string;
+  duration_ticks: number;
+  unmet_liters: number;
+  extra_unmet_vs_normal: number;      // the avoidable part, measured against a normal day
+  unavoidable_unmet: number;          // demand a closed station simply cannot sell
+  service_level: number;
+  first_stockout_tick: number | null;
+  tts_hours: number | null;           // time to the first stockout
+  ttr_hours: number | null;           // time for fuel to arrive another way
+  critical: boolean;                  // runs dry before an alternative can reach it
+  sole_supply_path: boolean;          // the station it feeds has no other route, today or any day
+  only_working_route: boolean;        // other routes exist but every one is disrupted right now
+  serves: string | null;
+  worst_station: string | null;
+  station_label?: string | null;
+  advice?: string;
+}
+export interface N1Report {
+  tick: number;
+  horizon_ticks: number;
+  durations: number[];
+  method: string;
+  stale: boolean;
+  forecast_model: string;
+  computed_in_ms: number;
+  baseline: { unmet_liters: number; service_level: number; first_stockout_tick: number | null };
+  findings: N1Finding[];
+  top_critical: N1Finding[];
+  worst_assets: N1Finding[];
+  single_points_of_failure: { asset: string; label: string; serves: string | null; kind: string }[];
+  only_working_route: { asset: string; label: string; serves: string | null; kind: string }[];
+}

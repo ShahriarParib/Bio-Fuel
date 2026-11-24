@@ -21,6 +21,7 @@ with a human in the loop (or on a guarded autopilot), and keeps working when its
 | Does it hold load? | k6 through nginx, api ×1 vs ×3, spike to 300 VUs; the engine never falls behind | [loadtest-report.md](docs/evidence/loadtest-report.md) |
 | Does it keep itself running? | on Kubernetes: a killed component is replaced in **7 s** while the platform keeps deciding on a labelled fallback, and the api autoscales **2 → 5-6** replicas under a 300-VU spike with **0 5xx** and ~8 ms p95 | [kubernetes.md](docs/evidence/kubernetes.md) |
 | Can a non-engineer read it? | any recommendation or incident explains itself in plain words, and a shift ends with a handover note and a postmortem; the model may not invent a number - every figure is checked against ours, and a failed check falls back to our own labelled summary | [assistant.md](docs/evidence/assistant.md) |
+| What if one asset fails? | every route, depot and station is removed in turn and the next day replayed with our policy reacting: the worst single failure costs **7,783 L**, and two stations have **no second route at all** | [contingency.md](docs/evidence/contingency.md) |
 | Can it be shipped safely? | CI: tests → e2e on the official simulator image → decision-quality gate → Trivy → GHCR; `deploy.sh` with health gate and **automatic rollback** | [ci.yml](.github/workflows/ci.yml), [runbook](docs/runbook.md) |
 
 Every number above comes from a script in this repo run against the official simulator image
@@ -146,6 +147,7 @@ Branches: every change goes `feature/*` → `dev` (full check) → `main` (alway
 | load test (~8 min, needs `make obs-up`) | `bash loadtest/run_loadtest.sh` |
 | metric contract | `bash scripts/check_metrics.sh` |
 | assistant evidence | `.venv/bin/python scripts/demo/assistant_evidence.py` |
+| N-1 contingency evidence | `.venv/bin/python scripts/demo/n1_evidence.py --inject` |
 | Kubernetes: cluster up · the two proofs | `make k8s-up` · `make k8s-demo` → `docs/evidence/kubernetes.md` |
 | release locally · deploy · rollback demo | `scripts/release_local.sh v1.0.0` · `scripts/deploy.sh v1.0.0 --local` · `scripts/demo/make_bad_release.sh v0.9.9-bad v1.0.0 && scripts/deploy.sh v0.9.9-bad --local` |
 

@@ -63,6 +63,8 @@ class WorldState:
     extras: dict[str, Any] = field(default_factory=dict)  # risk list, cover, forecast status (intelligence pipeline)
     pending_recommendations: list[dict[str, Any]] = field(default_factory=list)
     bottleneck: dict[str, Any] | None = None
+    # summary of the last N-1 contingency scan (full report in Redis: fsip:lab:n1)
+    n1: dict[str, Any] | None = None
     alerts_open_count: dict[str, int] = field(
         default_factory=lambda: {"INFO": 0, "WARNING": 0, "CRITICAL": 0}
     )
@@ -235,6 +237,7 @@ class WorldState:
                 "alerts_open_count": self.alerts_open_count,
                 "pending_recommendations": self.pending_recommendations,
                 "bottleneck": self.bottleneck,
+                "n1": self.n1,
                 "system": {
                     "simulator": "DOWN",
                     "sse": "DISCONNECTED",
@@ -296,6 +299,7 @@ class WorldState:
             "alerts_open_count": self.alerts_open_count,
             "pending_recommendations": self.pending_recommendations,
             "bottleneck": self.bottleneck,
+            "n1": self.n1,
             "risk": self.extras.get("risk", []),
             "cover": self.extras.get("cover"),
             "forecast": self.extras.get("forecast"),
