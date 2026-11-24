@@ -2,6 +2,7 @@ import { useWorldState } from "@/api/hooks";
 import { FUELS } from "@/api/types";
 import { Card, ErrorBox, RiskChip } from "@/components/ui";
 import { Contingency } from "@/components/Contingency";
+import { Fairness } from "@/components/Fairness";
 import { hours, liters, pct, RISK_ORDER, shortName } from "@/lib/format";
 
 /** Risk board: every station × fuel, Monte Carlo over the forecast's uncertainty (300 paths, 12 h). */
@@ -13,6 +14,7 @@ export default function Risk() {
   const rows = [...s.risk].sort((a, b) => RISK_ORDER[b.level] - RISK_ORDER[a.level] || b.prob_12h - a.prob_12h);
   return (
     <div className="space-y-4">
+      <Fairness names={name} />
       <Contingency />
       <Card title="Stockout risk heatmap (next 12 h)">
         <table className="text-sm" data-testid="risk-heatmap">

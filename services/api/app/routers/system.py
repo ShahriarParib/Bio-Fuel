@@ -120,6 +120,33 @@ async def incidents(request: Request):
     return doc or {"items": [], "open": 0}
 
 
+@router.get("/fairness")
+async def fairness(request: Request):
+    """Who is going short, and by how much.
+
+    A network-wide service level of 99% can hide one station sitting dry for a day. This endpoint returns the
+    distribution behind the headline: each station's own service level over the last 96 ticks, the worst of them,
+    and the Jain index (1.0 = everyone served equally, 1/n = one station took everything).
+    """
+    state = await _redis_json(request, "fsip:state") or {}
+    detail = state.get("scarcity_detail") or {}
+    if not detail:
+        raise HTTPException(status_code=503, detail={"code": "NOT_READY",
+                                                     "message": "no published state yet"})
+    return {
+        "tick": detail.get("tick"),
+        "scarcity": detail.get("active"),
+        "cover_ratio": detail.get("cover_ratio"),
+        "cover_ratio_by_region": detail.get("cover_ratio_by_region"),
+        "supply_ends_tick": detail.get("supply_ends_tick"),
+        "living_off_stock": detail.get("living_off_stock"),
+        "policy": detail.get("policy"),
+        "diagnosis": detail.get("diagnosis"),
+        "thresholds": detail.get("thresholds"),
+        **(detail.get("fairness") or {}),
+    }
+
+
 @router.get("/lab/n1")
 async def n1_contingency(request: Request):
     """The N-1 contingency scan: what the loss of any single asset would cost, computed before it happens.

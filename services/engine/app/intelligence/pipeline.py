@@ -18,6 +18,7 @@ from prometheus_client import Gauge
 from ..alerts.manager import AlertManager
 from ..decision import heuristic
 from ..decision.planning import FUELS, Key, PlanningState
+from ..risk import scarcity
 from ..risk.stockout import assess
 from ..state.store import WorldState
 from .client import ForecastService
@@ -65,6 +66,7 @@ def _name(state: PlanningState, sid: str) -> str:
 
 class IntelligencePipeline:
     def __init__(self, forecast: ForecastService, alerts: AlertManager, publisher, planning_fn) -> None:
+        self.scarcity = scarcity.ScarcityTracker()
         self.forecast = forecast
         self.alerts = alerts
         self.publisher = publisher
@@ -103,9 +105,19 @@ class IntelligencePipeline:
         await self.alerts.end()
         ws.alerts_open_count = self.alerts.counts()
         cover = self._cover(state, risks)
+        # Scarcity and fairness: the budget question ("is there enough for everyone?") and the distribution
+        # question ("is anyone being starved while the headline looks fine?").
+        scarcity_doc, transitions = scarcity.report(
+            state, self.scarcity, ws.demand,
+            pending_approvals=len(ws.pending_recommendations), mode=ws.operating_mode)
+        ws.scarcity = dict(scarcity_doc["active"])
+        await self._scarcity_alerts(scarcity_doc)
+        for fuel, change in transitions:
+            log.info("scarcity.transition", fuel=fuel, change=change,
+                     cover_ratio=scarcity_doc["cover_ratio"].get(fuel))
         self.last = {"cover": cover, "forecast": {"model": bundle.model, "source": bundle.source,
                                                    "reason": bundle.reason, **self.forecast.accuracy()}}
-        ws.extras = {**getattr(ws, "extras", {}), **self.last,
+        ws.extras = {**getattr(ws, "extras", {}), **self.last, "scarcity_detail": scarcity_doc,
                      "risk": [r.as_dict() for r in risks.values()], "impact_meter": self.meter.summary()}
         for (sid, f), r in risks.items():
             STOCKOUT_PROB.labels(station=sid, fuel=f).set(r.prob_12h)
@@ -120,6 +132,24 @@ class IntelligencePipeline:
             for f in FUELS:
                 DEPOT_INV.labels(depot=d.id, fuel=f).set(float(d.inventory[f]))
         await self.publisher.set_json("fsip:alerts", self.alerts.document())
+
+    async def _scarcity_alerts(self, doc) -> None:
+        """Raised every cycle a fuel is scarce; the manager resolves it once we stop raising it."""
+        for fuel, active in doc["active"].items():
+            if not active:
+                continue
+            ratio = doc["cover_ratio"].get(fuel)
+            fair = doc["fairness"]
+            worst = fair.get("min_station")
+            await self.alerts.raise_(
+                fingerprint=f"scarcity-{fuel}", category="SUPPLY", severity="CRITICAL",
+                title=f"{fuel}: not enough fuel for the next {doc['horizon_ticks']} ticks",
+                message=(f"Deliverable {fuel} covers {ratio:.0%} of forecast demand"
+                         + (f"; worst-served station is at {worst:.0%}" if worst is not None else "")
+                         + ". The planner now protects the worst-served station rather than the network total."),
+                entity_type="fuel", entity_id=fuel, fuel_type=fuel,
+                data={"cover_ratio": ratio, "supply_ends_tick": doc["supply_ends_tick"],
+                      "jain": fair.get("jain"), "worst_station": fair.get("worst_station")})
 
     # ------------------------------------------------------------------ stockout
     async def _risk_alerts(self, ws: WorldState, state: PlanningState, risks) -> None:
