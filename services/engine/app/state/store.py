@@ -304,6 +304,7 @@ class WorldState:
             "cover": self.extras.get("cover"),
             "forecast": self.extras.get("forecast"),
             "impact_meter": self.extras.get("impact_meter"),
+            "scarcity_detail": self.extras.get("scarcity_detail"),
             "slo": self.extras.get("slo"),
             "system": self._system_block(),
         }
