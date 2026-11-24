@@ -1,0 +1,87 @@
+{{/*
+The api is stateless (it serves what the engine publishes to Redis), so it is the one service that scales out.
+The load test measured the limit: ~50 concurrent consoles per 0.5-CPU replica, and 3 replicas carry 2-4x the load at
+the same latency. The autoscaler below turns that measurement into an automatic rule.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-api
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.api.autoscaling.enabled }}
+  replicas: {{ .Values.api.replicas }}
+  {{- end }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}   # no gap in service during an upgrade
+  selector: {matchLabels: {app: api, release: "{{ .Release.Name }}"}}
+  template:
+    metadata:
+      labels: {app: api, release: "{{ .Release.Name }}"}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /metrics/
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+    spec:
+      {{- if gt (int .Values.api.autoscaling.minReplicas) 1 }}
+      # spread replicas across nodes where possible, so one node failure never takes the console down
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector: {matchLabels: {app: api, release: "{{ .Release.Name }}"}}
+      {{- end }}
+      containers:
+        - name: api
+          image: {{ include "fsip.image" (dict "svc" "api" "root" $) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env: {{- include "fsip.env" . | nindent 12 }}
+          envFrom: {{- include "fsip.envfrom" . | nindent 12 }}
+          ports: [{containerPort: 8080}]
+          livenessProbe: {httpGet: {path: /health/live, port: 8080}, initialDelaySeconds: 5, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /health/live, port: 8080}, initialDelaySeconds: 3, periodSeconds: 5}
+          resources: {{- toYaml .Values.api.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-api
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  selector: {app: api, release: "{{ .Release.Name }}"}
+  ports: [{port: 8080, targetPort: 8080}]
+{{- if .Values.api.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Release.Name }}-api
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: "{{ .Release.Name }}-api"}
+  minReplicas: {{ .Values.api.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.api.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: {{ .Values.api.autoscaling.targetCPUUtilizationPercentage }}}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0     # a traffic spike must be answered immediately
+      policies: [{type: Percent, value: 100, periodSeconds: 15}]
+    scaleDown:
+      stabilizationWindowSeconds: 120   # scale back slowly, so a short dip does not cause flapping
+      policies: [{type: Pods, value: 1, periodSeconds: 60}]
+{{- end }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-api
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1    # voluntary disruptions (node drain, upgrade) may never take the last api pod
+  selector: {matchLabels: {app: api, release: "{{ .Release.Name }}"}}

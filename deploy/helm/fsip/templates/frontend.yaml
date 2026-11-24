@@ -1,0 +1,60 @@
+{{/* nginx serves the console and proxies /api to the api Service. The config lives in the "fsip.nginxconf" helper. */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-frontend-nginx
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+data:
+  default.conf: |
+    {{- include "fsip.nginxconf" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-frontend
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontend.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector: {matchLabels: {app: frontend, release: "{{ .Release.Name }}"}}
+  template:
+    metadata:
+      labels: {app: frontend, release: "{{ .Release.Name }}"}
+      annotations:
+        # a config change rolls the pods; without this they would keep the old file until restarted
+        checksum/nginx: {{ include "fsip.nginxconf" . | sha256sum }}
+    spec:
+      containers:
+        - name: frontend
+          image: {{ include "fsip.image" (dict "svc" "frontend" "root" $) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [{containerPort: 80}]
+          readinessProbe: {httpGet: {path: /, port: 80}, initialDelaySeconds: 3, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /, port: 80}, initialDelaySeconds: 10, periodSeconds: 10}
+          resources: {requests: {cpu: 20m, memory: 32Mi}, limits: {cpu: 200m, memory: 128Mi}}
+          volumeMounts:
+            - {name: nginx-conf, mountPath: /etc/nginx/conf.d}
+      volumes:
+        - name: nginx-conf
+          configMap: {name: "{{ .Release.Name }}-frontend-nginx"}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-frontend
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  type: NodePort
+  selector: {app: frontend, release: "{{ .Release.Name }}"}
+  ports: [{port: 80, targetPort: 80, nodePort: {{ .Values.frontend.nodePort }}}]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-frontend
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1    # voluntary disruptions (node drain, upgrade) may never take the last console pod
+  selector: {matchLabels: {app: frontend, release: "{{ .Release.Name }}"}}

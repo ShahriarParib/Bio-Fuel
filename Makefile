@@ -3,7 +3,7 @@ COMPOSE := docker compose
 PY := .venv/bin/python
 SERVICES := engine intelligence api
 
-.PHONY: help venv up obs-up chaos-up chaos-down chaos down down-v ps logs smoke test test-common lint fixtures fe-test fe-build
+.PHONY: help venv up obs-up chaos-up chaos-down chaos down down-v ps logs smoke test test-common lint fixtures fe-test fe-build k8s-lint k8s-up k8s-demo k8s-ps k8s-down
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -62,3 +62,19 @@ fe-test:
 
 fe-build:
 	cd frontend && npm ci && npm run build
+
+# ---------------------------------------------------------------- Kubernetes (local kind cluster)
+k8s-lint: ## validate the Helm chart (lint + render + kubectl dry-run)
+	bash scripts/k8s/lint.sh
+
+k8s-up: ## build images, create the kind cluster, install the chart, wait until healthy
+	bash scripts/k8s/up.sh
+
+k8s-demo: ## the two operational proofs: pod self-heal and HPA scale-up -> docs/evidence/kubernetes.md
+	bash scripts/k8s/demo.sh
+
+k8s-ps:
+	kubectl -n fsip get pods,hpa,svc
+
+k8s-down: ## delete the kind cluster ("make k8s-down keep=1" only uninstalls the release)
+	bash scripts/k8s/down.sh $(if $(keep),keep,)

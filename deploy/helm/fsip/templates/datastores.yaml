@@ -1,0 +1,75 @@
+{{/* Redis and TimescaleDB as StatefulSets: stable names and, for the database, a persistent volume. */}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-redis
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ .Release.Name }}-redis
+  replicas: 1
+  selector: {matchLabels: {app: redis, release: "{{ .Release.Name }}"}}
+  template:
+    metadata:
+      labels: {app: redis, release: "{{ .Release.Name }}"}
+    spec:
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image }}
+          args: ["redis-server", "--save", "", "--appendonly", "no"]   # pure cache: the engine can rebuild it
+          ports: [{containerPort: 6379}]
+          readinessProbe: {exec: {command: ["redis-cli", "ping"]}, initialDelaySeconds: 2, periodSeconds: 5}
+          livenessProbe: {tcpSocket: {port: 6379}, initialDelaySeconds: 10, periodSeconds: 10}
+          resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {cpu: 300m, memory: 256Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-redis
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  selector: {app: redis, release: "{{ .Release.Name }}"}
+  ports: [{port: 6379, targetPort: 6379}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-postgres
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ .Release.Name }}-postgres
+  replicas: 1
+  selector: {matchLabels: {app: postgres, release: "{{ .Release.Name }}"}}
+  template:
+    metadata:
+      labels: {app: postgres, release: "{{ .Release.Name }}"}
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          env:
+            - {name: POSTGRES_USER, value: fsip}
+            - {name: POSTGRES_DB, value: fsip}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: "{{ .Release.Name }}-secrets", key: POSTGRES_PASSWORD}}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports: [{containerPort: 5432}]
+          readinessProbe:
+            exec: {command: ["pg_isready", "-U", "fsip", "-d", "fsip"]}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "1", memory: 1Gi}}
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: {requests: {storage: {{ .Values.postgres.storage }}}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-postgres
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  selector: {app: postgres, release: "{{ .Release.Name }}"}
+  ports: [{port: 5432, targetPort: 5432}]

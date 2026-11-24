@@ -123,6 +123,22 @@ flowchart LR
 
 Branches: `feature/*` → `dev` (rebuild + full check) → `main` (always demoable).
 
+### Runtime topologies
+
+The same images run in two places, and the difference is only who restarts things.
+
+| | Docker Compose (the demo path) | Kubernetes (`deploy/helm/fsip`) |
+|---|---|---|
+| Who replaces a dead service | `restart: unless-stopped`, same host | the scheduler, on any node, in ~7 s |
+| Scaling the read path | manual `--scale api=N` | HPA, 2-6 replicas on 60 % CPU |
+| Engine single-writer guarantee | one container by construction | `replicas: 1` + `strategy: Recreate` (never two, not even mid-upgrade) |
+| Upgrade without a gap | `scripts/deploy.sh` + health gate + rollback | RollingUpdate `maxUnavailable: 0` + PodDisruptionBudgets |
+| Break-glass page survives engine death | separate nginx container, shared volume | sidecar in the engine pod + `publishNotReadyAddresses` Service |
+
+The invariant that does **not** change between them: exactly one engine writes to the simulator. Everything else
+may be replicated freely because it only reads published state. Measured behaviour:
+[kubernetes.md](evidence/kubernetes.md).
+
 ## 7. Tech
 
 Python 3.12 (FastAPI, httpx, pydantic 2, SQLAlchemy 2 async, PuLP/CBC, numpy), React 18 + TypeScript + Tailwind +

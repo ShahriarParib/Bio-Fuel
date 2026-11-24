@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+data:
+  {{- range $k, $v := .Values.config }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Release.Name }}-secrets
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  API_OPERATOR_TOKEN: {{ .Values.secrets.operatorToken | quote }}
+  API_SUPERVISOR_TOKEN: {{ .Values.secrets.supervisorToken | quote }}
+  ENGINE_INTERNAL_TOKEN: {{ .Values.secrets.internalToken | quote }}
+  POSTGRES_PASSWORD: {{ .Values.secrets.postgresPassword | quote }}
