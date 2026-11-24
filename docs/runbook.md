@@ -53,6 +53,22 @@ For a real cluster, point the chart at the published images and set your own tok
 helm upgrade --install fsip deploy/helm/fsip -n fsip --create-namespace   --set image.registry=ghcr.io/shahriarparib --set image.pullPolicy=IfNotPresent   --set secrets.operatorToken=... --set secrets.supervisorToken=...   --set secrets.internalToken=... --set secrets.postgresPassword=...
 ```
 
+## The plain-language assistant
+
+Optional. With `GEMINI_API_KEY` empty, every "Explain in plain words" button still works and serves the platform's
+own written summary — nothing breaks, and the badge on System Health says the assistant is off.
+
+| Task | Command |
+|---|---|
+| turn it on | put `GEMINI_API_KEY=...` in `.env`, then `docker compose up -d api` |
+| turn it off (demo without a network) | clear `GEMINI_API_KEY` in `.env`, `docker compose up -d api` |
+| check its state | `curl -s localhost:3000/api/assistant \| jq` |
+| regenerate the evidence | `.venv/bin/python scripts/demo/assistant_evidence.py` |
+| clear cached explanations | `docker compose exec redis sh -c "redis-cli --scan --pattern 'fsip:llm:*' \| xargs -r redis-cli del"` |
+
+If the badge says *cooling down*, the provider failed three times in a row and is being asked once a minute instead
+of once a click. Explanations keep working from the written summaries meanwhile; no action is needed.
+
 ## When something is red
 
 Look at **System Health** first: the mode, the reasons line, and the incident timeline say what the platform already
