@@ -269,6 +269,22 @@ Nothing here describes real fuel infrastructure.
 - **Judging criterion:** DevOps maturity and deployment, resilience, architecture (stated invariants), honesty of evidence.
 - **Demo line:** "Watch me kill the forecaster. The platform keeps deciding and says it is on the fallback — and seven seconds later Kubernetes has put it back. Now watch three hundred operators log in at once: the API grows from two replicas to six by itself, no errors, then shrinks back."
 
+### E2: A plain-language assistant that is not allowed to invent a number (2026-11-24)
+- **Goal:** let an operator who is not an engineer read any recommendation or incident as a sentence — without putting a single model-generated figure in front of them unchecked.
+- **What we built:** `libs/fsip_common/fsip_common/llm.py` (Gemini client: hard timeout, primary + spare model, failure cooldown, `check_grounded()` / `collect_numbers()`, three metrics); `services/api/app/routers/explain.py` (`GET /api/decisions/{id}/explain`, `/api/incidents/{id}/explain`, `/api/assistant`, Redis cache keyed by the facts); `frontend/src/components/PlainWords.tsx` plus the button on Decisions, Recommendations and every incident, and an assistant badge on System Health; six Grafana panels; `scripts/demo/assistant_evidence.py`.
+- **How / approach:** the order of operations is the whole design. A deterministic template answer is rendered **first** — it is both the fallback and the yardstick. The model is then asked to re-word the *same* facts, and every number in its answer must already appear in those facts or the answer is thrown away. The response always carries `source`, so the console can say "re-worded by `<model>`" or "the platform's own summary" and never leave an operator guessing. The model sees derived facts only: no database ids, no tokens, no raw records.
+- **Tools:** Gemini `generateContent` REST (`x-goog-api-key`), httpx, prometheus-client, TanStack Query, Playwright for the screenshots.
+- **Evidence:** `docs/evidence/assistant.md` (generated against the running stack): a real decision explained in **1.7 s**, the same question answered from cache in **4 ms**, and the guard run against the real facts — "1130 L to mirpur" is shown, "roughly 45 percent" and "1310 liters" are both discarded. 20 unit tests on the client and the guard, 12 on the endpoints, 4 on the console component. Screenshots: `e2-explain-decision.png`, `e2-explain-incident.png`.
+- **Problems hit → fix:**
+  1. **The pinned model started returning `503 UNAVAILABLE`** while we were building against it. The console carried on serving written summaries, which is the design working — but a single model name is still a single point of failure for something we demo live. The client now takes a primary and a spare, tries the spare only on retryable statuses (and never on 401/403, where a second call just wastes an operator's seconds), and the primary is pinned to a model we verified end to end.
+  2. **The first real answers were cut off mid-sentence.** A 220-token cap was enough for toy facts and not for a real decision. Raised to 600 (only generated tokens are billed) and, more importantly, any answer with `finishReason != STOP` is now discarded: half a fact is worse than none.
+  3. **The guard was about to reject true sentences.** We handed the model probabilities as `0.22`; it correctly wrote "22%", which the number check then flagged as invented. Probabilities and confidences are now converted to percentages *before* the model sees them, so the guard can stay strict.
+  4. The quantities read like machine output ("2780.0 liters") because the facts carried raw floats — rounded at the fact-building step, so the model repeats human numbers.
+  5. The assistant badge crashed the System Health page in a test that stubbed every fetch with the same payload; made it tolerant of a partial answer, which is also correct in production.
+  6. `python-jose`-style housekeeping: the unused `ANTHROPIC_API_KEY`/`LLM_MODEL` entries were removed from the local `.env` rather than left lying around, and `.env.example` documents the assistant as optional.
+- **Judging criterion:** generative-AI usage (brief §16), operator interface, observability, honesty of evidence.
+- **Demo line:** "This is the explanation an operator reads. It was written by a model — and if that model had put a single number in it that we did not compute, you would be reading our sentence instead, and the screen would say so."
+
 <!-- New entries go here, one per block (B1-B8, E1-E9). Copy the template below. -->
 
 ## 5. What we discovered about the simulator
@@ -289,6 +305,7 @@ Nothing here describes real fuel infrastructure.
 | 20.9 | Resilience demonstration | `docs/evidence/resilience.md` | done (B6) |
 | 20.10 | Load-test evidence | `docs/evidence/loadtest-report.md` | done (B8) |
 | 20.7 | Orchestration (beyond the brief) | Helm chart + kind, `docs/evidence/kubernetes.md` | done (E1) |
+| §16 | Generative AI in operations | `docs/evidence/assistant.md` | done (E2) |
 | 20.11 | Final demo | `docs/demo-runbook.md` | planned |
 
 ## 7. Questions we expect, and our answers

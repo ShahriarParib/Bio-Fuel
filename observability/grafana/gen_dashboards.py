@@ -201,6 +201,31 @@ def intelligence() -> Board:
         w=12, unit="s")
     b.add("timeseries", "Alerts opened by category", [q("sum by (category) (increase(fsip_alerts_opened_total[15m]))",
                                                         "{{category}}")], w=12)
+
+    # The plain-language assistant. What an operator needs to see here is not "is the LLM up" but "how often is
+    # the console showing a model's words instead of ours, and why" - so outcomes are broken out by reason.
+    b.row("Plain-language assistant")
+    b.add("stat", "Explanations served by the model", [q(
+        'sum(increase(fsip_llm_requests_total{outcome="ok"}[1h]))', "model answers (1h)")], w=6, h=5,
+        thresholds=[(None, "blue")],
+        description="the rest were answered by the platform's own written summaries")
+    b.add("stat", "Discarded: invented a number", [q(
+        'sum(increase(fsip_llm_requests_total{outcome="rejected_ungrounded"}[1h]))', "discarded (1h)")], w=6, h=5,
+        thresholds=[(None, GOOD), (1, WARN)],
+        description="answers thrown away because they contained a figure the platform never computed")
+    b.add("stat", "Assistant p95 latency", [q(
+        "histogram_quantile(0.95, sum by (le) (rate(fsip_llm_latency_seconds_bucket[15m])))", "p95")], w=6, h=5,
+        unit="s", thresholds=[(None, GOOD), (3, WARN), (5, BAD)])
+    b.add("stat", "Served from cache", [q(
+        'sum(increase(fsip_llm_cache_total{result="hit"}[1h])) / clamp_min(sum(increase(fsip_llm_cache_total[1h])), 1)',
+        "cache hit rate")], w=6, h=5, unit="percentunit", thresholds=[(None, WARN), (0.3, GOOD)])
+    b.add("timeseries", "Assistant outcomes", [q(
+        "sum by (outcome) (increase(fsip_llm_requests_total[5m]))", "{{outcome}}")], w=12,
+        description="ok / timeout / overloaded / auth_error / truncated / rejected_ungrounded / disabled / cooldown")
+    b.add("timeseries", "Assistant latency percentiles", [
+        q("histogram_quantile(0.5, sum by (le) (rate(fsip_llm_latency_seconds_bucket[5m])))", "p50"),
+        q("histogram_quantile(0.95, sum by (le) (rate(fsip_llm_latency_seconds_bucket[5m])))", "p95")],
+        w=12, unit="s")
     return b
 
 

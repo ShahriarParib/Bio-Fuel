@@ -17,7 +17,7 @@ from prometheus_client import Counter, Histogram, make_asgi_app
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from .config import get_settings
-from .routers import alerts, decisions, nodes, state, system
+from .routers import alerts, decisions, explain, nodes, state, system
 
 log = get_logger()
 settings = get_settings()
@@ -104,6 +104,7 @@ app.include_router(nodes.router)
 app.include_router(decisions.router)
 app.include_router(alerts.router)
 app.include_router(system.router)
+app.include_router(explain.router)
 
 
 _RATE_LUA = "local c = redis.call('INCR', KEYS[1]) if c == 1 then redis.call('EXPIRE', KEYS[1], 60) end return c"

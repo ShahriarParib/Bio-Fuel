@@ -136,3 +136,25 @@ export interface Alert {
   data: Record<string, unknown>;
 }
 export interface ListOf<T> { items: T[]; total?: number }
+
+/** A plain-language explanation of something the platform already decided.
+ *  `source` is what the operator must be able to see: "gemini" = re-worded by the model (every number in it was
+ *  checked against our own figures), "template" = the platform's own written sentence. */
+export interface Explained {
+  text: string;
+  source: "gemini" | "template";
+  model: string;
+  latency_ms: number;
+  cached: boolean;
+  note: string;
+  grounded_in: Record<string, unknown>;
+}
+export interface AssistantStatus {
+  state: "ready" | "disabled" | "cooling_down";
+  model: string;
+  models: string[];
+  detail: string;
+  timeout_s: number;
+  cache_ttl_s: number;
+  guarantees: string[];
+}

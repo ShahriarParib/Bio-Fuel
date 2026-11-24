@@ -1,5 +1,6 @@
 import clsx from "clsx";
-import { useIncidents, useSystemStatus, useWorldState } from "@/api/hooks";
+import { useAssistant, useIncidents, useSystemStatus, useWorldState } from "@/api/hooks";
+import { PlainWords } from "@/components/PlainWords";
 import type { ComponentHealth, Incident, SystemStatus } from "@/api/types";
 import { StatusPill } from "@/components/StatusPill";
 import { Card } from "@/components/ui";
@@ -114,7 +115,23 @@ function IncidentRow({ inc }: { inc: Incident }) {
             <span className={clsx("font-semibold", KIND_CLS[e.kind])}>{e.kind}</span> {e.text}</li>
         ))}
       </ol>
+      <div className="mt-1"><PlainWords kind="incidents" id={inc.id} /></div>
     </li>
+  );
+}
+
+/** Says whether the plain-language assistant is available, and on what terms. An operator should never have to
+ *  guess whether a sentence came from a model: this is the page-level half of that answer, PlainWords is the rest. */
+function AssistantBadge() {
+  const { data } = useAssistant();
+  if (!data?.state) return null;   // a partial answer must not break the health page
+  const tone = data.state === "ready" ? "text-state-healthy" : data.state === "cooling_down" ? "text-risk-medium" : "text-ink-faint";
+  const label = data.state === "ready" ? `assistant ready (${data.model})`
+    : data.state === "cooling_down" ? "assistant cooling down" : "assistant off - written summaries";
+  return (
+    <span className={clsx("text-[11px]", tone)} title={data.detail || (data.guarantees ?? []).join("\n")} data-testid="assistant-badge">
+      {label}
+    </span>
   );
 }
 
@@ -162,7 +179,7 @@ export default function SystemHealth() {
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
         <div className="space-y-4"><ResilienceContract s={data} /><SloPanel /></div>
-        <Card title={`Incidents (${inc.data?.open ?? 0} open)`} testId="incidents">
+        <Card title={`Incidents (${inc.data?.open ?? 0} open)`} right={<AssistantBadge />} testId="incidents">
           {inc.data?.items.length ? (
             <ul className="max-h-[28rem] divide-y divide-bg-border overflow-auto">{inc.data.items.slice(0, 12).map((i) => <IncidentRow key={i.id} inc={i} />)}</ul>
           ) : <div className="text-sm text-ink-muted">No incidents. Inject one from the Control page.</div>}
