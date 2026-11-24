@@ -294,6 +294,21 @@ Nothing here describes real fuel infrastructure.
 - **Judging criterion:** generative-AI usage (brief §16), operator interface, observability, honesty of evidence.
 - **Demo line:** "This is the explanation an operator reads. It was written by a model — and if that model had put a single number in it that we did not compute, you would be reading our sentence instead, and the screen would say so."
 
+### E3: N-1 contingency — which single failure would actually hurt, asked before it happens (2026-11-25)
+- **Goal:** answer the question every supply-network operator asks before anything breaks: *if I lose one asset, what breaks, and do I have time to react?*
+- **What we built:** `libs/fsip_common/fsip_common/twin.py` — a pure, closed-loop forward simulation of the network (our replenishment policy reacts every simulated tick) with `project()` and `n1_scan()`; `services/engine/app/intelligence/contingency.py` to translate the engine's planning view into it, run the scan every 16 ticks in a worker thread and publish `fsip:lab:n1`; `GET /api/lab/n1` (plus an on-demand `/internal/lab/n1`); the `Contingency` panel leading the Risk page; three metrics; `scripts/demo/n1_evidence.py`.
+- **How / approach:** the simulator cannot be forked, so "what would tomorrow look like if this route were cut" needs a model we own. Keeping the twin pure — dataclasses in, numbers out — is what lets the engine run 25 projections inside a single tick without touching the simulator, and what makes every claim below a unit test. The twin inherits the simulator behaviour we measured rather than idealising it: fuel lands at `tick + transit`, a closed station records demand as unmet without drawing down its tank, the depot dispatch cap is per tick and shared across fuels, and anything above capacity on arrival is lost.
+- **Tools:** no new dependencies — the whole thing is standard-library Python over our own dataclasses.
+- **Evidence:** `docs/evidence/contingency.md`, generated against a running stack twice: calm, then with a supply shortfall and a route cut injected. A full scan of 12 assets × 2 durations takes **190-430 ms**. On the strained network it ranks losing the Cox's Bazar route for 48 ticks at **7,783 L** of avoidable demand — the worst single failure in the network, and the station has no second route at all. 27 twin tests, 12 bridge tests, 4 console tests. Screenshot: `screenshots/e3-n1-contingency.png`.
+- **Problems hit → fix (all four found by reading the generated evidence, not by a failing test):**
+  1. **Every station outage outranked every real weakness.** Closing a station loses more litres than any route cut, but nothing we ship prevents it. The twin now separates `unmet_while_closed` from demand a station actually ran dry on, and ranks only on the avoidable part — otherwise the report sends an operator to fix something unfixable.
+  2. **A full network looked like it had nothing to say.** With comfortable tanks every failure is "absorbed", which is true and useless. The scan now also reports `sole_supply_path`: a station with one route in is worth pre-stocking on a good day, precisely because nobody thinks about it then.
+  3. **"Sole supply path" was quietly lying during a disruption.** A route whose sibling was cut today was flagged the same as a station that structurally has one route. Split into `sole_supply_path` (true any day) and `only_working_route` (today's exposure), with different wording and colour in the console.
+  4. **The "runs dry in" column read the same for every asset**, because it was reporting a stockout the baseline already had. Time-to-stockout is now reported only when the failure *causes* it — if the baseline runs dry at the same tick, the column is blank and the report says why.
+  5. The advice line named the worst-hit station in the whole projection rather than the station the asset feeds, so it read "Tongi has no second route — pre-stock it before the Patiya→Mirpur route is cut". It now uses the asset's own station.
+- **Judging criterion:** resilience and domain depth, intelligence component, operator interface, honesty of evidence.
+- **Demo line:** "Everything is green right now. Here is the route that, if it goes, nothing else can reach — and here is how many litres that would cost, worked out before it happens rather than after."
+
 <!-- New entries go here, one per block (B1-B8, E1-E9). Copy the template below. -->
 
 ## 5. What we discovered about the simulator
@@ -345,6 +360,7 @@ several of them changed the design rather than just the code.
 | 20.10 | Load-test evidence | `docs/evidence/loadtest-report.md` | done (B8) |
 | 20.7 | Orchestration (beyond the brief) | Helm chart + kind, `docs/evidence/kubernetes.md` | done (E1) |
 | §16 | Generative AI in operations | `docs/evidence/assistant.md` | done (E2) |
+| §21 | Proactive risk analytics | N-1 contingency, `docs/evidence/contingency.md` | done (E3) |
 | 20.11 | Final demo | `docs/demo-runbook.md` | planned |
 
 ## 7. Questions we expect, and our answers
