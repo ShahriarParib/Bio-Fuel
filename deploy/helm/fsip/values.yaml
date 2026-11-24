@@ -63,6 +63,10 @@ config:
   API_RATE_LIMIT_PER_MIN: "600"
   BREAKER_FAILURE_THRESHOLD: "5"
   DECISION_TTL_TICKS: "8"
+  GEMINI_MODEL: gemini-3.5-flash-lite
+  GEMINI_SPARE_MODEL: gemini-flash-lite-latest
+  LLM_TIMEOUT_SEC: "4"
+  LLM_BUDGET_SEC: "6"
 
 secrets:
   # CHANGE THESE before any shared cluster: helm install ... --set secrets.operatorToken=...
@@ -70,3 +74,6 @@ secrets:
   supervisorToken: change-me-supervisor
   internalToken: change-me-internal
   postgresPassword: change-me
+  # optional: with no key the explain endpoints serve the platform's own written summaries
+  #   helm upgrade ... --set secrets.geminiApiKey=$GEMINI_API_KEY
+  geminiApiKey: ""

@@ -5,6 +5,7 @@ import type { Decision } from "@/api/types";
 import { useApprove, useReject } from "@/api/hooks";
 import { ApiError } from "@/api/client";
 import { hours, liters, pct, shortId } from "@/lib/format";
+import { PlainWords } from "./PlainWords";
 
 /** One recommendation in the brief §9 alert format, with the reasoning one click away. */
 export function RecommendationCard({ d, tick, canAct }: { d: Decision; tick: number; canAct: boolean }) {
@@ -52,6 +53,7 @@ export function RecommendationCard({ d, tick, canAct }: { d: Decision; tick: num
       </div>
 
       <div className="px-4 pb-3">
+        <div className="mb-2"><PlainWords kind="decisions" id={d.id} /></div>
         <button className="flex items-center gap-1 text-xs text-brand" onClick={() => setOpen(!open)} data-testid="why-toggle">
           {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Why, constraints, alternatives
         </button>

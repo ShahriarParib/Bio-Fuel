@@ -19,3 +19,4 @@ stringData:
   API_SUPERVISOR_TOKEN: {{ .Values.secrets.supervisorToken | quote }}
   ENGINE_INTERNAL_TOKEN: {{ .Values.secrets.internalToken | quote }}
   POSTGRES_PASSWORD: {{ .Values.secrets.postgresPassword | quote }}
+  GEMINI_API_KEY: {{ .Values.secrets.geminiApiKey | quote }}

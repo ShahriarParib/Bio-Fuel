@@ -2,7 +2,7 @@
  *  serves cached state (ETag) so a 1 s poll is cheap. */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, setToken } from "./client";
-import type { Alert, Decision, Incident, ListOf, SystemStatus, WorldState } from "./types";
+import type { Alert, AssistantStatus, Decision, Explained, Incident, ListOf, SystemStatus, WorldState } from "./types";
 
 const TOKEN_KEY = "fsip.operatorToken";
 
@@ -43,6 +43,20 @@ export const useSystemStatus = () =>
 
 export const useIncidents = () =>
   useQuery({ queryKey: ["incidents"], queryFn: () => api<{ items: Incident[]; open: number }>("/incidents"), refetchInterval: 2000 });
+
+/** Plain-language explanation, fetched only when the operator asks for it (it may cost an LLM call).
+ *  The api caches by content, so re-opening the same card is free; we keep it in the query cache too. */
+export const useExplain = (kind: "decisions" | "incidents", id: number, enabled: boolean) =>
+  useQuery({
+    queryKey: ["explain", kind, id],
+    queryFn: () => api<Explained>(`/${kind}/${id}/explain`),
+    enabled,
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+  });
+
+export const useAssistant = () =>
+  useQuery({ queryKey: ["assistant"], queryFn: () => api<AssistantStatus>("/assistant"), staleTime: 30_000 });
 
 /** Demo Control endpoints (operator token + DEMO_CONTROLS=true on the api). */
 export function useDemo() {
