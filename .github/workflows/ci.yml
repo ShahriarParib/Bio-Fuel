@@ -45,9 +45,24 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  chart:
+    # The Kubernetes manifests are rendered and checked on every push. The invariant assertion in
+    # scripts/k8s/lint.sh is the point: a change that scales the engine (the only writer to the simulator)
+    # or drops a resource limit fails here instead of in a cluster.
+    name: helm chart render + invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with: {version: v3.16.3}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install pyyaml==6.0.2
+      - run: bash scripts/k8s/lint.sh
+
   e2e:
     name: e2e on the real simulator + decision-quality gate
-    needs: [python, frontend]
+    needs: [python, frontend, chart]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
