@@ -1,0 +1,72 @@
+# Defaults target a local kind cluster with images loaded into the node (pullPolicy: Never).
+# For a real cluster set image.registry (e.g. ghcr.io/<owner>) and image.pullPolicy: IfNotPresent.
+image:
+  registry: ""          # "" = local images named fsip/<service>:<tag>
+  tag: v1.0.0-rc1
+  pullPolicy: Never
+
+simulator:
+  image: asifmahmoud414/bup-fuel-supply-simulator:1.0.0
+  pullPolicy: IfNotPresent
+  speed: "0.5"
+  tickMinutes: "15"
+  startMode: paused
+  nodePort: 30800
+
+frontend:
+  replicas: 2           # survives a node drain / rolling update with no blank page
+  nodePort: 30080
+  # nginx needs a resolver IP (not a name) to re-resolve the api Service as the autoscaler adds pods.
+  # 10.96.0.10 is the kube-dns ClusterIP on kind/kubeadm defaults; check with:
+  #   kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}'
+  dnsResolver: 10.96.0.10
+
+api:
+  replicas: 2
+  autoscaling:          # the point of the Kubernetes demo: proven against the k6 load test
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 60
+  resources:
+    requests: {cpu: 150m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+
+engine:
+  # exactly one engine: it is the only writer to the simulator. Recreate (never two at once) and no autoscaling.
+  breakglass:
+    image: nginx:1.27-alpine   # sidecar that serves /data/breakglass when the engine itself is down
+  resources:
+    requests: {cpu: 200m, memory: 256Mi}
+    limits: {cpu: "1", memory: 512Mi}
+
+intelligence:
+  replicas: 1
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: "1", memory: 768Mi}
+
+postgres:
+  image: timescale/timescaledb:2.17.2-pg16
+  storage: 2Gi
+
+redis:
+  image: redis:7.4-alpine
+
+# Non-secret settings become a ConfigMap; the three tokens and the DB password become a Secret.
+config:
+  LOG_LEVEL: INFO
+  ENGINE_MODE: advisory
+  ENGINE_POLICY: optimizer
+  DEMO_CONTROLS: "true"
+  SLO_POLICY: enforce
+  API_RATE_LIMIT_PER_MIN: "600"
+  BREAKER_FAILURE_THRESHOLD: "5"
+  DECISION_TTL_TICKS: "8"
+
+secrets:
+  # CHANGE THESE before any shared cluster: helm install ... --set secrets.operatorToken=...
+  operatorToken: change-me-operator
+  supervisorToken: change-me-supervisor
+  internalToken: change-me-internal
+  postgresPassword: change-me

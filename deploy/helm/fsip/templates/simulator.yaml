@@ -1,0 +1,38 @@
+{{/* The organizers' simulator: the world our platform operates. Not ours, so it is never scaled or restarted by us. */}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-simulator
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: simulator, release: "{{ .Release.Name }}"}}
+  template:
+    metadata:
+      labels: {app: simulator, release: "{{ .Release.Name }}"}
+    spec:
+      containers:
+        - name: simulator
+          image: {{ .Values.simulator.image }}
+          imagePullPolicy: {{ .Values.simulator.pullPolicy }}
+          env:
+            - {name: SIMULATION_SPEED, value: "{{ .Values.simulator.speed }}"}
+            - {name: TICK_MINUTES, value: "{{ .Values.simulator.tickMinutes }}"}
+            - {name: SIMULATOR_START_MODE, value: "{{ .Values.simulator.startMode }}"}
+          ports: [{containerPort: 8000}]
+          readinessProbe:
+            httpGet: {path: /v1/health, port: 8000}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: "1", memory: 512Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-simulator
+  labels: {{- include "fsip.labels" . | nindent 4 }}
+spec:
+  type: NodePort
+  selector: {app: simulator, release: "{{ .Release.Name }}"}
+  ports: [{port: 8000, targetPort: 8000, nodePort: {{ .Values.simulator.nodePort }}}]

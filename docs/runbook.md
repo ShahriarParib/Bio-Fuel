@@ -27,6 +27,32 @@ v0.9.9-bad --local`.
 
 Manual rollback: `scripts/deploy.sh <previous version> --local`.
 
+## Run on Kubernetes (optional)
+
+Compose is the demo path; Kubernetes is the operational one -- it replaces a dead component and scales the read
+path without anyone watching. One single-node cluster runs on the laptop (kind), from the chart in
+`deploy/helm/fsip`.
+
+| Task | Command |
+|---|---|
+| validate the chart (no cluster needed) | `make k8s-lint` |
+| create cluster + install | `make k8s-up` |
+| console / simulator | http://localhost:3080 / http://localhost:3800 |
+| pods, autoscaler, services | `make k8s-ps` |
+| the two proofs -> `docs/evidence/kubernetes.md` | `make k8s-demo` |
+| uninstall release, keep cluster | `make k8s-down keep=1` |
+| delete the cluster | `make k8s-down` |
+
+Deliberate constraints encoded in the chart: the engine is `replicas: 1` with `strategy: Recreate` (it is the only
+writer to the simulator, so two must never run at once), the api autoscales 2-6 on 60% CPU (the number the load
+test measured), and the break-glass page is served by a sidecar so it stays readable while the engine restarts.
+
+For a real cluster, point the chart at the published images and set your own tokens:
+
+```bash
+helm upgrade --install fsip deploy/helm/fsip -n fsip --create-namespace   --set image.registry=ghcr.io/shahriarparib --set image.pullPolicy=IfNotPresent   --set secrets.operatorToken=... --set secrets.supervisorToken=...   --set secrets.internalToken=... --set secrets.postgresPassword=...
+```
+
 ## When something is red
 
 Look at **System Health** first: the mode, the reasons line, and the incident timeline say what the platform already
