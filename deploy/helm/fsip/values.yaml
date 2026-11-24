@@ -65,8 +65,8 @@ config:
   DECISION_TTL_TICKS: "8"
   GEMINI_MODEL: gemini-3.5-flash-lite
   GEMINI_SPARE_MODEL: gemini-flash-lite-latest
-  LLM_TIMEOUT_SEC: "4"
-  LLM_BUDGET_SEC: "6"
+  LLM_TIMEOUT_SEC: "6"
+  LLM_BUDGET_SEC: "9"
 
 secrets:
   # CHANGE THESE before any shared cluster: helm install ... --set secrets.operatorToken=...

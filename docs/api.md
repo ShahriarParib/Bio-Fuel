@@ -50,6 +50,22 @@ These talk to the simulator's admin API and are audit-logged.
 | `POST /api/demo/events` | `{"preset": "demand_spike"\|"route_cut"\|"single_route_station_cut"\|"supply_delay"\|"supply_shortfall"\|"station_outage"\|"depot_constraint"\|"combined"}` |
 | `POST /api/demo/faults` · `/api/demo/faults/clear` · `GET /api/demo/faults` | `{"type": "unavailable"\|"error_rate"\|"latency"\|"stale_data"\|"stream_disconnect", "duration_seconds", "rate"?, "delay_ms"?}`; paused during an SLO change freeze unless supervisor |
 
+## Plain-language assistant (optional)
+
+Every endpoint here returns the same shape: `text`, `source` (`gemini` = re-worded by the model, `template` = the
+platform's own written sentence), `model`, `latency_ms`, `cached`, `note`, and `grounded_in` — the exact facts the
+model was allowed to see. The model never decides anything, and any wording containing a number the platform did
+not compute is discarded in favour of the template, with the reason in `note`. With no `GEMINI_API_KEY` configured
+every endpoint still answers, always from the template.
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/decisions/{id}/explain` | why this shipment, in 2-4 sentences |
+| `GET /api/incidents/{id}/explain` | what this incident was and how the platform carried on |
+| `GET /api/incidents/{id}/postmortem` | the morning-after write-up of a resolved incident |
+| `GET /api/summary?window_ticks=96` | the handover note for the next shift (adds `window_ticks`, `tick`) |
+| `GET /api/assistant` | whether the assistant is on, which models, and the guarantees around it |
+
 ## Internal
 
 `POST /api/internal/alertmanager` receives Alertmanager webhooks (internal token) and turns them into SYSTEM alerts.

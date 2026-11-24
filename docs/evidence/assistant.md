@@ -1,6 +1,6 @@
 # The plain-language assistant, and why you can trust what it says
 
-Generated 2026-11-24 16:06 UTC against a running stack.
+Generated 2026-11-24 16:38 UTC against a running stack.
 
 An operator on a night shift does not need another dashboard; they need a sentence. So the console can explain any
 recommendation or incident in plain words. The entire design is about making that safe:
@@ -23,23 +23,42 @@ or *the platform's own summary*.
 |---|---|
 | State | `ready` |
 | Model (primary, then spare) | `gemini-3.5-flash-lite`, `gemini-flash-lite-latest` |
-| Per-attempt timeout | 4.0 s |
+| Per-attempt timeout | 6.0 s |
 | Explanation cache | 900 s, keyed by the facts themselves |
 
 ## What an operator actually got
 
 | Asked about | Source | Model | Provider time | End-to-end |
 |---|---|---|---|---|
-| Decision #8029 | the model, checked | gemini-3.5-flash-lite | 1729 ms | 1734 ms |
-| Decision #8029 again | the model, checked | gemini-3.5-flash-lite | cache | 4 ms |
-| Incident #9 (redis) | the model, checked | gemini-3.5-flash-lite | 1374 ms | 1378 ms |
+| Decision #8029 | the model, checked | gemini-3.5-flash-lite | 2356 ms | 3470 ms |
+| Decision #8029 again | the model, checked | gemini-3.5-flash-lite | cache | 5 ms |
+| Incident #9 (redis) | the platform's own summary | - | 0 ms | 12434 ms |
 
-> Autopilot has executed the dispatch of 2780 liters of diesel to maintain depot levels and cover demand. Gazipur is sending 1130 liters to Mirpur, which is currently 52 percent full with no immediate risk of running dry. Patiya is sending 1650 liters to Karnaphuli Highway Station to maintain coverage. Watch for space constraints, as two octane shipments to Patiya Coxsbazar and Patiya Karnaphuli could not be served due to insufficient room upon arrival.
+> We are executing shipments totaling 2780 liters of diesel via autopilot based on seasonal forecasting. Gazipur is sending 1130 liters to Mirpur Fuel Station because it is at 52 percent capacity, while Patiya is sending 1650 liters to Karnaphuli Highway Station to maintain cover. Please watch station inventory levels closely as operations continue.
 
-> Redis went down because it was unreachable. The platform fixed this by having the api read state directly from the engine with live updates by polling, and the engine mode is now normal. The component recovered and is healthy again.
+> The redis component reported: unreachable. The platform kept working by this route: api reads state directly from the engine; live updates by polling. It recovered on its own after 15.9 seconds, with no operator action.
 
-The second request is the same question: it is answered from cache in a few milliseconds and costs nothing. The
-cache key is a hash of the facts, so it invalidates itself the moment the underlying decision changes.
+The second request is the same question, answered from cache in a few milliseconds at no cost. The cache key is a hash of the facts, so it invalidates itself the moment the underlying decision changes.
+
+## Two things written for a human to act on
+
+An explanation answers "why this?". These two answer "what do I do now?", and they are the places where a wrong
+number would travel furthest — a handover note gets pasted into a chat, a postmortem gets read the next morning by
+people who were not there. Both go through the same guard.
+
+**Shift handover** (`GET /api/summary?window_ticks=96`, template, 12434 ms) — the note an outgoing
+operator leaves behind:
+
+> Over the last 96 ticks (t96 to 192) the network served 100% of demand: 186,352 L delivered, 0 L unmet. The platform made 30 decisions this shift (90,780 L dispatched, 0 failed shipments, 0 L lost to overflow), running in advisory mode on the optimizer planner. 9 component incident(s) opened and closed with nobody acting, the first being redis (unreachable) back in 15.9 s. No station is at elevated risk right now.
+
+**Postmortem** for incident #9 (`GET /api/incidents/9/postmortem`, template, 13644 ms):
+
+> The redis component failed with: unreachable. The platform carried on by this route: api reads state directly from the engine; live updates by polling. Operating mode moved: engine mode → NORMAL. It recovered 15.9 s after detection with no operator action, so no shipment waited on a human. The platform records the symptom, not the root cause, so the cause is whatever the component reported.
+
+Counts in the handover are given to the model explicitly rather than left to be counted off a list: the lists it
+sees are truncated to four examples, so a model counting items would state a number that is true of the list and
+false of the shift. In the postmortem, the facts separate *actions the platform took* from *operating-mode
+transitions observed*, because an early draft described a mode change as if it were the fix.
 
 ## The guard, exercised
 
@@ -82,6 +101,8 @@ why the client now carries a spare model and why the primary is pinned to one we
 ## Where it is in the console
 
 * **Decisions** - click a decision number to have it explained.
-* **System health → Incidents** - every incident can be explained; the card header shows whether the assistant is
-  available at all.
-* Screenshots: `screenshots/e2-explain-decision.png`, `screenshots/e2-explain-incident.png`.
+* **System health → Incidents** - every incident can be explained, and a resolved one can be written up as a
+  postmortem; the card header shows whether the assistant is available at all.
+* **Overview** - the shift-handover card, with a copy button for pasting into a chat or a logbook.
+* Screenshots: `screenshots/e2-explain-decision.png`, `screenshots/e2-explain-incident.png`,
+  `screenshots/e2-shift-handover.png`, `screenshots/e2-postmortem.png`.

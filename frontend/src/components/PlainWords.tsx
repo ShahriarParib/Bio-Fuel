@@ -10,18 +10,21 @@ import { useExplain } from "@/api/hooks";
  *  contained a number the platform did not compute never reaches here - the api drops it and sends the written
  *  summary with the reason, which we show.
  */
-export function PlainWords({ kind, id }: { kind: "decisions" | "incidents"; id: number }) {
+export function PlainWords({ kind, id, what = "explain" }: {
+  kind: "decisions" | "incidents"; id: number; what?: "explain" | "postmortem";
+}) {
   const [asked, setAsked] = useState(false);
-  const { data, isFetching, error } = useExplain(kind, id, asked);
+  const { data, isFetching, error } = useExplain(kind, id, asked, what);
+  const label = what === "postmortem" ? "Write the postmortem" : "Explain in plain words";
 
   if (!asked) {
     return (
       <button
         onClick={() => setAsked(true)}
         className="flex items-center gap-1 text-xs text-brand hover:underline"
-        data-testid="explain-btn"
+        data-testid={what === "postmortem" ? "postmortem-btn" : "explain-btn"}
       >
-        <MessageSquareText size={14} /> Explain in plain words
+        <MessageSquareText size={14} /> {label}
       </button>
     );
   }

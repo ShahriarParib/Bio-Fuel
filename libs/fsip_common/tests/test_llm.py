@@ -7,6 +7,7 @@ import pytest
 from fsip_common.llm import (
     GeminiClient,
     LlmUnavailable,
+    _answer_text,
     check_grounded,
     collect_numbers,
     normalise_number,
@@ -161,3 +162,46 @@ class TestClientGuards:
         with pytest.raises(LlmUnavailable) as err:
             asyncio.run(client.complete("instruction", "facts"))
         assert secret not in str(err.value)
+
+
+class TestAnswerAssembly:
+    """Regression: a real answer arrived split across parts and we showed only the first one."""
+
+    def test_an_answer_split_across_parts_is_joined(self, monkeypatch):
+        body = {"candidates": [{"finishReason": "STOP", "content": {"parts": [
+            {"text": "The redis component went down because it was unreachable and has now recovered. The"},
+            {"text": " platform kept serving from the engine throughout."},
+        ]}}]}
+        assert _answer_text(body)[0].endswith("from the engine throughout.")
+
+    def test_reasoning_parts_are_not_shown_to_the_operator(self):
+        body = {"candidates": [{"finishReason": "STOP", "content": {"parts": [
+            {"text": "Let me think about the litres...", "thought": True},
+            {"text": "Autopilot topped up Mirpur."},
+        ]}}]}
+        assert _answer_text(body)[0] == "Autopilot topped up Mirpur."
+
+    def test_a_single_part_still_works(self):
+        body = {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "One sentence."}]}}]}
+        assert _answer_text(body) == ("One sentence.", "STOP")
+
+    def test_the_finish_reason_survives_the_join(self):
+        body = {"candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": [
+            {"text": "Half a "}, {"text": "sentence"}]}}]}
+        assert _answer_text(body) == ("Half a sentence", "MAX_TOKENS")
+
+    def test_an_answer_the_provider_cut_short_is_refused(self, monkeypatch):
+        class Resp:
+            status_code = 200
+            def json(self):
+                return {"candidates": [{"finishReason": "MAX_TOKENS",
+                                        "content": {"parts": [{"text": "Autopilot sent 1130 L and then"}]}}]}
+
+        class Client:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def post(self, *a, **k): return Resp()
+
+        monkeypatch.setattr("fsip_common.llm.httpx.AsyncClient", lambda **kw: Client())
+        with pytest.raises(LlmUnavailable, match="stopped early"):
+            asyncio.run(GeminiClient(api_key="k", model="m", spare_model="").complete("i", "f"))

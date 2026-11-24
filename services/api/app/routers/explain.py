@@ -103,7 +103,6 @@ def _incident_facts(i: dict[str, Any]) -> dict[str, Any]:
         "state": i.get("status"),
         "what_went_wrong": i.get("summary"),
         "severity": i.get("severity_status"),
-        "minutes_to_recover": round((i.get("mttr_s") or 0) / 60, 1) if i.get("mttr_s") else None,
         "seconds_to_recover": i.get("mttr_s"),
         "what_the_platform_did": [t.get("text") for t in (i.get("timeline") or []) if t.get("kind") == "mitigated"],
         "timeline": [f"{t.get('kind')}: {t.get('text')}" for t in (i.get("timeline") or [])],
@@ -149,7 +148,9 @@ def _incident_template(f: dict[str, Any]) -> str:
 
 
 # --------------------------------------------------------------------------- the pipeline
-async def _explain(request: Request, kind: str, key: str, facts: dict[str, Any], template: str) -> LlmResult:
+async def _explain(request: Request, kind: str, facts: dict[str, Any], template: str,
+                   instruction: str = "") -> LlmResult:
+    instruction = instruction or INSTRUCTION
     redis = getattr(request.app.state, "redis", None)
     prompt_facts = json.dumps(facts, ensure_ascii=False, sort_keys=True, default=str)
     cache_key = "fsip:llm:" + hashlib.blake2b(
@@ -167,7 +168,7 @@ async def _explain(request: Request, kind: str, key: str, facts: dict[str, Any],
 
     result = LlmResult(text=template, source="template", note="assistant disabled")
     try:
-        text, elapsed = await _client.complete(INSTRUCTION, prompt_facts)
+        text, elapsed = await _client.complete(instruction, prompt_facts)
         allowed = collect_numbers(facts)
         bad = check_grounded(text, allowed)
         if bad is not None:
@@ -219,7 +220,7 @@ async def explain_decision(request: Request, decision_id: int):
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "No such decision"})
 
     facts = _decision_facts(target)
-    result = await _explain(request, "decision", str(decision_id), facts, _decision_template(facts))
+    result = await _explain(request, "decision", facts, _decision_template(facts))
     return _payload(result, facts)
 
 
@@ -233,7 +234,7 @@ async def explain_incident(request: Request, incident_id: int):
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "No such incident"})
 
     facts = _incident_facts(target)
-    result = await _explain(request, "incident", str(incident_id), facts, _incident_template(facts))
+    result = await _explain(request, "incident", facts, _incident_template(facts))
     return _payload(result, facts)
 
 
@@ -250,3 +251,180 @@ async def assistant_status():
             "if it is slow, down or rejected, the operator gets the platform's own written summary",
         ],
     }
+
+
+# --------------------------------------------------------------------------- shift handover and postmortem
+SHIFT_INSTRUCTION = (
+    "You write the handover note an outgoing fuel-supply operator leaves for the person taking over the next "
+    "shift, in Bangladesh. You are given facts a scheduling system computed. Write 4 to 6 short sentences of plain "
+    "English in this order: what the shift was like, what the platform did, what broke and whether it recovered, "
+    "and what the next operator should watch. Rules you must follow exactly: use only the numbers given to you, "
+    "never compute or estimate a new one; never invent stations, causes or times; no markdown, no bullet points, "
+    "no headings, no preamble, no greeting, and do not address the reader by name."
+)
+
+POSTMORTEM_INSTRUCTION = (
+    "You write the short postmortem an operations team reads the morning after an incident. You are given facts a "
+    "monitoring system recorded. Write 3 to 5 short sentences of plain English: what failed, what someone using the "
+    "system would have noticed, how the platform carried on, and how it ended. Rules you must follow exactly: use "
+    "only the numbers given to you, never compute or estimate a new one; never invent a cause that is not in the "
+    "facts - if the cause is unknown, say so. Only the entries under "
+    "actions_the_platform_took_to_keep_serving are things the platform did; an operating-mode transition is "
+    "something that was observed as a consequence, never an action taken to fix the problem. No markdown, no "
+    "bullet points, no headings, no preamble, no greeting."
+)
+
+
+def _shift_facts(state: dict[str, Any], decisions: list[dict[str, Any]], incidents: list[dict[str, Any]],
+                 window: int) -> dict[str, Any]:
+    tick = int(state.get("tick") or 0)
+    since = max(0, tick - window)
+    mine = [d for d in decisions if int(d.get("tick") or 0) >= since]
+    m = state.get("metrics") or {}
+    impact = state.get("impact_meter") or {}
+    without = impact.get("without_platform") or {}
+    risks = sorted((r for r in (state.get("risk") or []) if r.get("level") in ("HIGH", "CRITICAL", "MEDIUM")),
+                   key=lambda r: (r.get("hours_to_stockout") is None, r.get("hours_to_stockout") or 0))
+    slo = state.get("slo") or {}
+    resolved = [i for i in incidents if i.get("status") == "RESOLVED" and i.get("mttr_s")]
+    still_open = [i for i in incidents if i.get("status") == "OPEN"]
+    return {
+        "shift_length_ticks": min(window, tick),
+        "ticks_covered": f"{since} to {tick}",
+        "clock": state.get("clock_label") or state.get("sim_time"),
+        "fuel_service_level_percent": _pct(m.get("service_level")),
+        "litres_delivered_to_stations": round(m.get("served_liters") or 0),
+        "litres_of_demand_not_met": round(m.get("unmet_liters") or 0),
+        "failed_shipments": m.get("allocation_failures"),
+        "litres_lost_to_overflow": round(m.get("overflow_liters_est") or 0),
+        "without_this_platform": ({
+            "service_level_percent": _pct(without.get("service_level")),
+            "stations_that_would_have_run_dry": without.get("stations_that_ran_dry"),
+            "method": impact.get("method"),
+        } if without else None),
+        "decisions_this_shift": len(mine),
+        "decisions_executed": sum(1 for d in mine if d.get("status") == "EXECUTED"),
+        "decisions_waiting_for_a_human": sum(1 for d in mine if str(d.get("status") or "").startswith("PENDING")),
+        "litres_dispatched_this_shift": round(sum(float(d.get("total_liters") or 0) for d in mine)),
+        "running_in": state.get("operating_mode"),
+        "planner": state.get("policy"),
+        "engine_mode": state.get("engine_mode"),
+        "open_alerts": state.get("alerts_open_count"),
+        # counts are given explicitly: the sample lists below are truncated, and a model asked to count list
+        # items would otherwise state a number that is true of the list but not of the shift
+        "incidents_that_closed_themselves_count": len(resolved),
+        "incidents_that_closed_themselves_examples": [
+            {"component": i.get("component"), "what": i.get("summary"), "seconds_to_recover": i.get("mttr_s")}
+            for i in resolved][:4],
+        "incidents_still_open_count": len(still_open),
+        "incidents_still_open_examples": [{"component": i.get("component"), "what": i.get("summary")}
+                                          for i in still_open][:4],
+        "watch_next": [
+            {"station": str(r.get("station_id") or "").removeprefix("station-"), "fuel": r.get("fuel_type"),
+             "risk": r.get("level"), "hours_of_cover_left": r.get("hours_to_stockout")}
+            for r in risks[:3]],
+        "fuel_running_short_network_wide": [f for f, on in (state.get("scarcity") or {}).items() if on],
+        "service_level_budget_remaining_percent": _pct(slo.get("budget_remaining")),
+        "change_freeze_in_force": slo.get("change_freeze"),
+    }
+
+
+def _shift_template(f: dict[str, Any]) -> str:
+    out = (f"Over the last {f['shift_length_ticks']} ticks (t{f['ticks_covered']}) the network served "
+           f"{f['fuel_service_level_percent']}% of demand: {f['litres_delivered_to_stations']:,} L delivered, "
+           f"{f['litres_of_demand_not_met']:,} L unmet.")
+    out += (f" The platform made {f['decisions_this_shift']} decisions this shift "
+            f"({f['litres_dispatched_this_shift']:,} L dispatched, {f['failed_shipments']} failed shipments, "
+            f"{f['litres_lost_to_overflow']:,} L lost to overflow), running in {f['running_in']} mode on the "
+            f"{f['planner']} planner.")
+    if f["decisions_waiting_for_a_human"]:
+        out += f" {f['decisions_waiting_for_a_human']} recommendation(s) are waiting for approval."
+    if f["incidents_that_closed_themselves_count"]:
+        i = f["incidents_that_closed_themselves_examples"][0]
+        out += (f" {f['incidents_that_closed_themselves_count']} component incident(s) opened and closed with "
+                f"nobody acting, the first being {i['component']} ({i['what']}) back in "
+                f"{i['seconds_to_recover']:g} s.")
+    if f["incidents_still_open_count"]:
+        out += (" Still open: "
+                + ", ".join(f"{i['component']} ({i['what']})" for i in f["incidents_still_open_examples"]) + ".")
+    if f["watch_next"]:
+        w = f["watch_next"][0]
+        cover = (f", about {w['hours_of_cover_left']:g} h of cover left"
+                 if w.get("hours_of_cover_left") is not None else "")
+        out += f" Watch {w['station']} {w['fuel']} first ({w['risk']} risk{cover})."
+    else:
+        out += " No station is at elevated risk right now."
+    if f["fuel_running_short_network_wide"]:
+        out += f" Network-wide scarcity is active for {', '.join(f['fuel_running_short_network_wide'])}."
+    if f["change_freeze_in_force"]:
+        out += " A change freeze is in force: policy switches need an explicit override."
+    return out
+
+
+def _postmortem_facts(i: dict[str, Any]) -> dict[str, Any]:
+    tl = i.get("timeline") or []
+    return {
+        "component": i.get("component"),
+        "what_failed": i.get("summary"),
+        "severity": i.get("severity_status"),
+        "state_now": i.get("status"),
+        "seconds_from_detection_to_recovery": i.get("mttr_s"),
+        "detected": next((t.get("text") for t in tl if t.get("kind") == "detected"), None),
+        "actions_the_platform_took_to_keep_serving": [t.get("text") for t in tl if t.get("kind") == "mitigated"],
+        "operating_mode_transitions_observed": [t.get("text") for t in tl if t.get("kind") == "mode"],
+        "sequence_in_order": [f"{t.get('kind')}: {t.get('text')}" for t in tl],
+        "ended": next((t.get("text") for t in tl if t.get("kind") == "recovered"), None),
+        "operator_action_needed": False,
+        "root_cause": "not recorded: the platform observes the symptom above, not the cause inside the component",
+    }
+
+
+def _postmortem_template(f: dict[str, Any]) -> str:
+    out = f"The {f['component']} component failed with: {f['what_failed']}."
+    if f["actions_the_platform_took_to_keep_serving"]:
+        out += f" The platform carried on by this route: {f['actions_the_platform_took_to_keep_serving'][0]}."
+    if f["operating_mode_transitions_observed"]:
+        out += f" Operating mode moved: {'; '.join(f['operating_mode_transitions_observed'])}."
+    if f["state_now"] == "RESOLVED" and f.get("seconds_from_detection_to_recovery"):
+        out += (f" It recovered {f['seconds_from_detection_to_recovery']:g} s after detection with no operator "
+                f"action, so no shipment waited on a human.")
+    else:
+        out += " It is still open, and the mitigation above is what is holding the service up."
+    out += " The platform records the symptom, not the root cause, so the cause is whatever the component reported."
+    return out
+
+
+@router.get("/summary")
+async def shift_summary(request: Request, window_ticks: int = 96):
+    """The handover note for whoever takes the next shift: what happened, what broke, what to watch.
+
+    `window_ticks` defaults to 96 - one simulated day at 15-minute ticks.
+    """
+    from .decisions import _cached_decisions
+    from .system import _redis_json
+    from .system import incidents as incidents_endpoint
+
+    window = max(1, min(int(window_ticks), 2000))
+    state = await _redis_json(request, "fsip:state") or {}
+    if not state:
+        raise HTTPException(status_code=503, detail={"code": "NO_STATE", "message": "no published state yet"})
+    decisions = await _cached_decisions(request)
+    incidents = (await incidents_endpoint(request)).get("items") or []
+
+    facts = _shift_facts(state, decisions, incidents, window)
+    result = await _explain(request, "shift", facts, _shift_template(facts), SHIFT_INSTRUCTION)
+    return {**_payload(result, facts), "window_ticks": window, "tick": state.get("tick")}
+
+
+@router.get("/incidents/{incident_id}/postmortem")
+async def incident_postmortem(request: Request, incident_id: int):
+    """The morning-after note for one incident. Same guard: it may not introduce a number, or a cause."""
+    from .system import incidents as incidents_endpoint
+
+    doc = await incidents_endpoint(request)
+    target = next((i for i in (doc.get("items") or []) if i.get("id") == incident_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "No such incident"})
+    facts = _postmortem_facts(target)
+    result = await _explain(request, "postmortem", facts, _postmortem_template(facts), POSTMORTEM_INSTRUCTION)
+    return _payload(result, facts)
