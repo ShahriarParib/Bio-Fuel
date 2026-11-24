@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import time
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -228,6 +229,31 @@ async def lifespan(app: FastAPI):
 
     hooks.append(_hook_breakglass)
 
+    from .intelligence import contingency as n1_mod
+
+    n1_state: dict[str, Any] = {"last_tick": None}
+
+    async def _hook_n1(ws: WorldState) -> None:
+        """Every 16 ticks: ask what a single asset failure would cost, before one happens.
+
+        The scan is pure CPU over the forecast (no simulator calls), but it is still ~25 projections, so it runs in
+        a worker thread and never blocks the decision cycle. A failure here is never allowed to affect the tick:
+        the console simply keeps showing the previous scan.
+        """
+        if ws.snapshot is None or not n1_mod.should_run(ws.snapshot.instance.tick, n1_state["last_tick"]):
+            return
+        n1_state["last_tick"] = ws.snapshot.instance.tick
+        try:
+            plan_state = decision_engine.planning_state()
+            doc = await asyncio.to_thread(n1_mod.scan, plan_state)
+            await publisher.set_json("fsip:lab:n1", doc)
+            ws.n1 = {"critical": len(doc["top_critical"]), "tick": doc["tick"],
+                     "worst": (doc["worst_assets"][0]["label"] if doc["worst_assets"] else None)}
+        except Exception as err:
+            log.warning("n1.scan_failed", error=str(err), error_type=type(err).__name__)
+
+    hooks.append(_hook_n1)
+
     from .state import slo as slo_mod
     domain_slo = slo_mod.DomainSlo()
 
@@ -367,6 +393,13 @@ async def ready():
 @app.get("/internal/incidents", dependencies=[Depends(require_internal)])
 async def incidents():
     return app.state.health.incidents.document()
+
+
+@app.get("/internal/lab/n1", dependencies=[Depends(require_internal)])
+async def internal_n1():
+    """Compute an N-1 scan on demand. The api only reaches for this when Redis has no published scan."""
+    from .intelligence import contingency as n1_mod
+    return await asyncio.to_thread(n1_mod.scan, app.state.decision_engine.planning_state())
 
 
 @app.get("/internal/health", dependencies=[Depends(require_internal)])

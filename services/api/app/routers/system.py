@@ -120,6 +120,22 @@ async def incidents(request: Request):
     return doc or {"items": [], "open": 0}
 
 
+@router.get("/lab/n1")
+async def n1_contingency(request: Request):
+    """The N-1 contingency scan: what the loss of any single asset would cost, computed before it happens.
+
+    Published by the engine every 16 ticks (it owns the forecast and the live network); the api just serves the
+    document, so this read scales with api replicas and survives the engine restarting.
+    """
+    doc = await _redis_json(request, "fsip:lab:n1")
+    if doc is None:
+        doc = await _engine_get(request, "/internal/lab/n1")
+    if not doc:
+        raise HTTPException(status_code=503, detail={"code": "NOT_READY",
+                                                     "message": "no contingency scan yet; it runs every 16 ticks"})
+    return doc
+
+
 # ------------------------------------------------------------------ demo controls
 def _demo_enabled() -> None:
     if not get_settings().demo_controls:
