@@ -322,6 +322,24 @@ Nothing here describes real fuel infrastructure.
 - **Judging criterion:** domain depth and fairness, intelligence, observability, honesty of evidence.
 - **Demo line:** "Service level says 46 %. That number tells you nothing about who suffered. This does: here is every station, here is the worst one by name, and here is why — the fuel was never missing, it was waiting for someone to click approve."
 
+### E9: Supply chain — what is in the image, and who built it (2026-11-25)
+- **Goal:** answer the two questions a Trivy pass does not: *what is actually inside this image*, and *did it come from our pipeline*.
+- **What we built:** a CycloneDX SBOM per image in the scan job (kept 90 days); keyless `cosign` signing of every published image in the publish job, with the SBOM attached as an attestation; every evidence report and every SBOM attached to the GitHub Release; `make sbom` for the same documents locally; verification instructions in the runbook.
+- **How / approach:** keyless signing binds the signature to the workflow's own OIDC identity, so there is no private key for us to store, rotate or leak — and a verifier learns *who* built an image, not only that nobody has altered it since. The signing step is deliberately `continue-on-error`: Sigstore is a third party, and the rule we have applied to the simulator, to Redis and to Gemini applies to it too — an outside dependency must not be able to block our release. A failure is loud in the log and leaves the images published and usable, unsigned.
+- **Tools:** Trivy 0.57.1 (CycloneDX output), cosign v3 via `sigstore/cosign-installer`, GitHub OIDC.
+- **Evidence:** verified on the `v1.0.0` tag build (see the Release page: SBOMs attached, signature verifiable with the command in `docs/runbook.md`).
+- **Judging criterion:** DevSecOps, delivery maturity.
+- **Demo line:** "Trivy tells you the image is clean today. The SBOM tells you what is in it when tomorrow's CVE lands, and the signature tells you it came from this pipeline and nowhere else."
+
+### F1: The clean-clone test — the one assumption we had never checked (2026-11-25)
+- **Goal:** prove the repository runs on a machine that has never seen it, because every other number in `docs/evidence/` was measured in a working copy with an existing `.env`, cached images and populated volumes.
+- **What we built:** `scripts/clean_clone_test.sh` — stops the development stack (same compose project name, same ports, so a clone that only worked because something of ours was running would be caught), clones from GitHub into an empty directory, runs the two commands the README gives, then checks the smoke test, every component's health, every console route and the assistant's behaviour without an API key. It writes `docs/evidence/clean-clone.md`.
+- **How / approach:** cloning from GitHub rather than copying the working tree is the point: it proves that everything needed was actually committed and pushed, and that nothing essential is sitting in `.gitignore`. Stopping our own stack first is the other half — otherwise the test could pass on our containers.
+- **Evidence:** `docs/evidence/clean-clone.md`. 266 files, `cp .env.example .env`, `docker compose up -d --build`, and the console answered **~15 s** after the containers started. All nine components Healthy, all seven console routes 200, smoke green. With no `GEMINI_API_KEY` — which is what `.env.example` ships — the assistant reported itself disabled and the explanation endpoints served the platform's own summaries, with no error anywhere in the UI.
+- **Problems hit → fix:** none, which is the result we wanted and not one we assumed. The value of the test is that it was capable of failing: a missing Dockerfile, a file excluded by `.gitignore`, a setting present only in our local `.env`, or a service that only came up because a volume already held its data would all have shown here rather than on a judge's laptop.
+- **Judging criterion:** DevOps maturity, reproducibility, honesty of evidence.
+- **Demo line:** "This is not our folder. It is a fresh clone of the public repository, two commands, fifteen seconds."
+
 <!-- New entries go here, one per block (B1-B8, E1-E9). Copy the template below. -->
 
 ## 5. What we discovered about the simulator
@@ -361,7 +379,7 @@ several of them changed the design rather than just the code.
 
 | Brief § | Deliverable | Where | Status |
 |---|---|---|---|
-| 20.1 | Working application | `docker compose up -d --build` | done |
+| 20.1 | Working application | `docker compose up -d --build`, verified from a fresh clone | done (F1) |
 | 20.2 | Source repository | this repo + README | done |
 | 20.3 | Simulator integration | `services/engine/app/sim/` | done (P01) |
 | 20.4 | Intelligence component | forecast, risk, LP, twin | done (B3, B5) |

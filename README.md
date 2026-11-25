@@ -41,6 +41,12 @@ bash scripts/smoke_test.sh           # → SMOKE OK
 docker compose --profile obs up -d   # optional: Prometheus, Grafana, Alertmanager, Loki, cAdvisor, node-exporter
 ```
 
+Those four lines are exactly what we test: `scripts/clean_clone_test.sh` clones this repository into an empty
+directory on a machine with the development stack **stopped**, runs them, and checks the result
+([clean-clone.md](docs/evidence/clean-clone.md) — console healthy ~15 s after the containers start).
+
+The simulator starts paused: press **Run** on the Control page, or `curl -X POST localhost:8000/admin/run`.
+
 | URL | What |
 |---|---|
 | http://localhost:3000 | **Operator console** (sign in top right with `API_OPERATOR_TOKEN` from `.env`) |
@@ -148,6 +154,7 @@ Branches: every change goes `feature/*` → `dev` (full check) → `main` (alway
 | load test (~8 min, needs `make obs-up`) | `bash loadtest/run_loadtest.sh` |
 | metric contract | `bash scripts/check_metrics.sh` |
 | software bill of materials | `make sbom` → `sbom/fsip-*.cdx.json` |
+| clean-clone test (what a judge runs) | `bash scripts/clean_clone_test.sh` |
 | assistant evidence | `.venv/bin/python scripts/demo/assistant_evidence.py` |
 | N-1 contingency evidence | `.venv/bin/python scripts/demo/n1_evidence.py --inject` |
 | fairness evidence | `.venv/bin/python scripts/demo/fairness_evidence.py` |
