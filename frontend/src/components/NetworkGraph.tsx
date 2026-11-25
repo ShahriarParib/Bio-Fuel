@@ -4,8 +4,8 @@ import { RISK_ORDER, shortName } from "@/lib/format";
 
 const W = 760;
 const H = 330;
-const RISK_STROKE: Record<RiskLevel, string> = { LOW: "#22C55E", MEDIUM: "#EAB308", HIGH: "#F97316", CRITICAL: "#EF4444" };
-const FUEL_FILL: Record<Fuel, string> = { DIESEL: "#38BDF8", PETROL: "#A78BFA", OCTANE: "#F472B6" };
+const RISK_STROKE: Record<RiskLevel, string> = { LOW: "#7FA98C", MEDIUM: "#C9B069", HIGH: "#C78D63", CRITICAL: "#D4717A" };
+const FUEL_FILL: Record<Fuel, string> = { DIESEL: "#E6E6EA", PETROL: "#9C9CA6", OCTANE: "#5E5E6A" };
 
 function spread<T>(items: T[], top: number, bottom: number): [T, number][] {
   if (items.length === 1) return [[items[0], (top + bottom) / 2]];
@@ -45,7 +45,7 @@ export function NetworkGraph({ depots, stations, routes, allocations, risk }: {
         const my = (y1 + y2) / 2;
         return (
           <g key={r.id} data-testid={`edge-${r.id}`}>
-            <line x1={DX + 70} y1={y1} x2={SX} y2={y2} stroke={down ? "#EF4444" : flow ? "#3B82F6" : "#24314F"}
+            <line x1={DX + 70} y1={y1} x2={SX} y2={y2} stroke={down ? "#D4717A" : flow ? "#8A8A95" : "#24242B"}
               strokeWidth={flow ? 3 : 2} strokeDasharray={down ? "6 5" : undefined} />
             <text x={mx} y={my - 4} textAnchor="middle" className="fill-ink-faint text-[10px]">
               {down ? "DISRUPTED" : `${r.transit_ticks} ticks`}
@@ -62,8 +62,8 @@ export function NetworkGraph({ depots, stations, routes, allocations, risk }: {
         const y = dPos.get(d.id) ?? 0;
         return (
           <g key={d.id} data-testid={`node-${d.id}`}>
-            <rect x={DX - 70} y={y - 34} width={140} height={68} rx={8} fill="#17223A"
-              stroke={d.status === "CONSTRAINED" ? "#EAB308" : "#3B82F6"} strokeWidth={2} />
+            <rect x={DX - 70} y={y - 34} width={140} height={68} rx={10} fill="#1A1A1E"
+              stroke={d.status === "CONSTRAINED" ? "#C9B069" : "#3A3A43"} strokeWidth={1.5} />
             <text x={DX} y={y - 18} textAnchor="middle" className="fill-ink text-[12px] font-semibold">{shortName(d.name)} depot</text>
             {FUELS.map((f, i) => (
               <rect key={f} x={DX - 58} y={y - 8 + i * 12} height={7} rx={2} fill={FUEL_FILL[f]}
@@ -77,16 +77,16 @@ export function NetworkGraph({ depots, stations, routes, allocations, risk }: {
         const lvl = worst.get(s.id) ?? "LOW";
         return (
           <g key={s.id} data-testid={`node-${s.id}`}>
-            <rect x={SX} y={y - 30} width={170} height={60} rx={8} fill="#17223A"
-              stroke={s.status === "OUTAGE" ? "#64748B" : RISK_STROKE[lvl]} strokeWidth={lvl === "LOW" ? 1.5 : 3} />
+            <rect x={SX} y={y - 30} width={170} height={60} rx={10} fill="#1A1A1E"
+              stroke={s.status === "OUTAGE" ? "#4A4A53" : (lvl === "LOW" ? "#3A3A43" : RISK_STROKE[lvl])} strokeWidth={lvl === "LOW" ? 1.5 : 3} />
             <text x={SX + 8} y={y - 14} className="fill-ink text-[12px] font-semibold">{shortName(s.name)}</text>
             <text x={SX + 162} y={y - 14} textAnchor="end" className="text-[10px] font-semibold"
-              fill={s.status === "OUTAGE" ? "#94A3B8" : RISK_STROKE[lvl]}>
+              fill={s.status === "OUTAGE" ? "#6A6A74" : RISK_STROKE[lvl]}>
               {s.status === "OUTAGE" ? "OUTAGE" : lvl}{s.demand_multiplier !== 1 ? ` ×${s.demand_multiplier.toFixed(1)}` : ""}
             </text>
             {FUELS.map((f, i) => (
               <g key={f}>
-                <rect x={SX + 8} y={y - 6 + i * 11} width={154} height={7} rx={2} fill="#0B1220" />
+                <rect x={SX + 8} y={y - 6 + i * 11} width={154} height={7} rx={3} fill="#0E0E10" />
                 <rect x={SX + 8} y={y - 6 + i * 11} height={7} rx={2} fill={FUEL_FILL[f]}
                   width={Math.max(1, (154 * s.inventory[f]) / s.capacity[f])} />
               </g>
