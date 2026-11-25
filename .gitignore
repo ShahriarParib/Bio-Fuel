@@ -15,3 +15,6 @@ loadtest/out/
 .DS_Store
 deploy/versions.env
 CLAUDE.md
+
+# generated software bills of materials (make sbom)
+sbom/

@@ -23,7 +23,7 @@ with a human in the loop (or on a guarded autopilot), and keeps working when its
 | Can a non-engineer read it? | any recommendation or incident explains itself in plain words, and a shift ends with a handover note and a postmortem; the model may not invent a number - every figure is checked against ours, and a failed check falls back to our own labelled summary | [assistant.md](docs/evidence/assistant.md) |
 | What if one asset fails? | every route, depot and station is removed in turn and the next day replayed with our policy reacting: the worst single failure costs **7,783 L**, and two stations have **no second route at all** | [contingency.md](docs/evidence/contingency.md) |
 | When fuel runs short, who suffers? | the console shows every station's own service level, names the worst, and reports the **Jain index**; it also says whether the binding constraint is supply, distribution, or a pending approval | [fairness.md](docs/evidence/fairness.md) |
-| Can it be shipped safely? | CI: tests → e2e on the official simulator image → decision-quality gate → Trivy → GHCR; `deploy.sh` with health gate and **automatic rollback** | [ci.yml](.github/workflows/ci.yml), [runbook](docs/runbook.md) |
+| Can it be shipped safely? | CI: tests → e2e on the official simulator image → decision-quality gate → Trivy → GHCR, with a **CycloneDX SBOM** per image and **keyless cosign signatures**; `deploy.sh` with health gate and **automatic rollback** | [ci.yml](.github/workflows/ci.yml), [runbook](docs/runbook.md) |
 
 Every number above comes from a script in this repo run against the official simulator image
 (`asifmahmoud414/bup-fuel-supply-simulator:1.0.0`). The simulator is deterministic, so re-running gives the same
@@ -147,6 +147,7 @@ Branches: every change goes `feature/*` → `dev` (full check) → `main` (alway
 | policy evaluation matrix (~35 min) | `.venv/bin/python evaluation/harness.py --matrix` |
 | load test (~8 min, needs `make obs-up`) | `bash loadtest/run_loadtest.sh` |
 | metric contract | `bash scripts/check_metrics.sh` |
+| software bill of materials | `make sbom` → `sbom/fsip-*.cdx.json` |
 | assistant evidence | `.venv/bin/python scripts/demo/assistant_evidence.py` |
 | N-1 contingency evidence | `.venv/bin/python scripts/demo/n1_evidence.py --inject` |
 | fairness evidence | `.venv/bin/python scripts/demo/fairness_evidence.py` |
