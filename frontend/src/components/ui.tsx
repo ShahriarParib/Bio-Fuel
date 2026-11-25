@@ -7,10 +7,11 @@ export function Card({ title, right, children, className, testId }: {
   title?: ReactNode; right?: ReactNode; children: ReactNode; className?: string; testId?: string;
 }) {
   return (
-    <section className={clsx("rounded-lg border border-bg-border bg-bg-panel", className)} data-testid={testId}>
+    <section className={clsx("fsip-panel rounded-xl border border-bg-border bg-bg-panel", className)}
+      data-testid={testId}>
       {title && (
-        <header className="flex items-center justify-between border-b border-bg-border px-4 py-2">
-          <h2 className="text-sm font-semibold text-ink">{title}</h2>
+        <header className="flex items-center justify-between gap-3 border-b border-bg-border px-4 py-2.5">
+          <h2 className="text-[13px] font-semibold tracking-[0.01em] text-ink">{title}</h2>
           {right}
         </header>
       )}
@@ -24,10 +25,16 @@ export function Kpi({ label, value, sub, tone = "neutral", testId }: {
 }) {
   const color = { good: "text-state-healthy", warn: "text-state-degraded", bad: "text-state-down", neutral: "text-ink" }[tone];
   return (
-    <div className="rounded-lg border border-bg-border bg-bg-panel px-4 py-3" data-testid={testId}>
-      <div className="text-xs uppercase tracking-wide text-ink-muted">{label}</div>
-      <div className={clsx("mt-1 text-2xl font-semibold tabular-nums", color)}>{value}</div>
-      {sub && <div className="mt-0.5 text-xs text-ink-faint">{sub}</div>}
+    <div className="fsip-panel relative overflow-hidden rounded-xl border border-bg-border bg-bg-panel px-4 py-3"
+      data-testid={testId}>
+      {/* a hairline of the tone along the top edge: the card itself stays grey, the signal is a line of light */}
+      <span aria-hidden className={clsx("absolute inset-x-0 top-0 h-px",
+        { good: "bg-state-healthy/60", warn: "bg-state-degraded/60", bad: "bg-state-down/70",
+          neutral: "bg-ink/15" }[tone])} />
+      <div className="label-caps text-ink-faint">{label}</div>
+      <div className={clsx("mt-1.5 font-mono text-[26px] font-semibold leading-none tabular-nums tracking-tight",
+        color)}>{value}</div>
+      {sub && <div className="mt-1.5 text-[11px] text-ink-faint">{sub}</div>}
     </div>
   );
 }

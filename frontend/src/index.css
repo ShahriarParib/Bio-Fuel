@@ -3,4 +3,46 @@
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
-body { font-feature-settings: "tnum" 1; } /* tabular numbers: no jitter on live updates */
+
+body {
+  /* tabular numbers: live figures must not jitter as they update */
+  font-feature-settings: "tnum" 1, "cv05" 1;
+  background-color: #0A0A0B;
+  /* A faint engineering grid. It is almost invisible on its own, and it is what stops a near-black screen
+     reading as an empty void: it gives the panels something to sit on. */
+  background-image:
+    radial-gradient(circle at 18% -10%, rgba(255, 255, 255, 0.035), transparent 55%),
+    linear-gradient(rgba(255, 255, 255, 0.016) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.016) 1px, transparent 1px);
+  background-size: 100% 100%, 44px 44px, 44px 44px;
+  background-attachment: fixed;
+}
+
+/* Panels lift off the grid with a hairline of light along the top edge, the way a physical bezel would. */
+@layer components {
+  .fsip-panel {
+    box-shadow: 0 1px 0 0 rgb(255 255 255 / 4%) inset, 0 10px 30px -22px rgb(0 0 0 / 90%);
+  }
+}
+
+/* Section labels: small, spaced capitals, the way an instrument marks its dials. */
+@layer utilities {
+  .label-caps {
+    font-size: 10px;
+    line-height: 1.2;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+}
+
+::selection { background: #E8E8EC; color: #0A0A0B; }
+
+/* The scrollbar is part of the chrome, so it is grey too rather than the browser's blue-grey default. */
+* { scrollbar-width: thin; scrollbar-color: #2A2A30 transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #2A2A30; border: 3px solid #0A0A0B; border-radius: 999px; }
+*::-webkit-scrollbar-thumb:hover { background: #3A3A42; }
+
+/* Focus is visible and monochrome: keyboard operators should never lose where they are. */
+:focus-visible { outline: 2px solid #E8E8EC; outline-offset: 2px; }

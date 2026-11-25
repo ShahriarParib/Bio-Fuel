@@ -44,7 +44,7 @@ export default function Overview() {
             <ul className="space-y-2">
               {alerts.data!.items.slice(0, 6).map((a) => (
                 <li key={a.fingerprint} className="rounded bg-bg-raised p-2 text-xs">
-                  <div className="flex items-center gap-2"><SeverityBadge severity={a.severity} /><span className="text-ink-faint">t={a.opened_tick}</span></div>
+                  <div className="flex items-center gap-2"><SeverityBadge severity={a.severity} /><span className="text-ink-faint">{a.opened_tick != null ? `t=${a.opened_tick}` : a.opened_at ? a.opened_at.slice(11, 16) : ""}</span></div>
                   <div className="mt-1 font-medium text-ink">{a.title}</div>
                 </li>
               ))}

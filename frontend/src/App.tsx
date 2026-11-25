@@ -65,7 +65,7 @@ function Header() {
         <button disabled={!getToken() || setMode.isPending || !s}
           onClick={() => setMode.mutate(auto ? "advisory" : "autopilot")}
           className={clsx("flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold disabled:opacity-40",
-            auto ? "bg-brand text-white" : "bg-bg-raised text-ink-muted")} data-testid="autopilot-toggle"
+            auto ? "bg-brand text-bg" : "bg-bg-raised text-ink-muted")} data-testid="autopilot-toggle"
           title={auto ? "Autopilot executes safe recommendations (confidence ≥ 70%, lines ≤ 7,000 L, fresh data)" : "Every recommendation waits for a human"}>
           {auto ? "AUTOPILOT ON" : "ADVISORY (human approves)"}
         </button>
@@ -113,7 +113,13 @@ export default function App() {
   const crit = s?.alerts_open_count?.CRITICAL ?? 0;
   return (
     <div className="flex h-full flex-col">
-      <div className="bg-amber-500/90 px-4 py-0.5 text-center text-[11px] font-semibold tracking-wide text-black" data-testid="simulated-strip">
+      {/* The one warning that must never be mistaken for data. It stays legible without competing with the
+          numbers: a charcoal strip, hazard-striped at the edges, with the warning itself in signal amber. */}
+      <div
+        className="border-b border-risk-medium/30 bg-risk-medium/[0.07] px-4 py-1 text-center label-caps
+                   font-semibold text-risk-medium"
+        data-testid="simulated-strip"
+      >
         SIMULATED ENVIRONMENT – NOT REAL FUEL INFRASTRUCTURE
       </div>
       <Header />
@@ -125,8 +131,8 @@ export default function App() {
               className={({ isActive }) => clsx("flex items-center gap-2 rounded-md px-3 py-2 text-sm",
                 isActive ? "bg-brand-soft text-ink" : "text-ink-muted hover:bg-bg-raised")}>
               <Icon size={16} aria-hidden /> {label}
-              {to === "/recommendations" && pending > 0 && <span className="ml-auto rounded-full bg-brand px-1.5 text-[10px] text-white">{pending}</span>}
-              {to === "/alerts" && crit > 0 && <span className="ml-auto rounded-full bg-risk-critical px-1.5 text-[10px] text-white">{crit}</span>}
+              {to === "/recommendations" && pending > 0 && <span className="ml-auto rounded-full bg-brand px-1.5 text-[10px] font-semibold text-bg">{pending}</span>}
+              {to === "/alerts" && crit > 0 && <span className="ml-auto rounded-full bg-risk-critical px-1.5 text-[10px] font-semibold text-bg">{crit}</span>}
             </NavLink>
           ))}
           <div className="px-3 pt-4 text-[10px] leading-4 text-ink-faint">

@@ -114,7 +114,7 @@ export default function Control() {
           {STORY.map((st, i) => (
             <li key={i} className={clsx("flex items-center gap-2 rounded px-2 py-1 text-sm", done.includes(i) && "bg-state-healthy/10")}>
               <button onClick={() => toggle(i)} aria-label={`mark step ${i + 1}`}
-                className={clsx("flex h-5 w-5 shrink-0 items-center justify-center rounded border", done.includes(i) ? "border-state-healthy bg-state-healthy text-white" : "border-bg-border")}>
+                className={clsx("flex h-5 w-5 shrink-0 items-center justify-center rounded border", done.includes(i) ? "border-state-healthy bg-state-healthy text-bg" : "border-bg-border")}>
                 {done.includes(i) && <Check size={12} />}
               </button>
               <span className="w-5 text-right text-ink-faint">{i + 1}</span>
