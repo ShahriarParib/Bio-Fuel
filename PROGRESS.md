@@ -1,7 +1,11 @@
 # Project status
 
-Release: **v1.0.0-rc1** (all core work done). Deadline: Thu 2026-11-26. The full story of each step, including every
-bug the tests and drills found, is in [docs/ENGINEERING_JOURNAL.md](docs/ENGINEERING_JOURNAL.md).
+Release: **v1.0.0** — core work (B1-B8) and the extension track (E1-E4, E9) are done, verified from a fresh clone.
+Deadline: Thu 2026-11-26. The full story of each step, including every bug the tests and drills found, is in
+[docs/ENGINEERING_JOURNAL.md](docs/ENGINEERING_JOURNAL.md).
+
+240 tests pass (85 shared library, 90 engine, 37 api, 1 intelligence, 27 console), CI is green on `main`, and
+`scripts/clean_clone_test.sh` installs the whole platform from an empty directory in about 15 seconds.
 
 ## Work blocks
 
@@ -15,6 +19,12 @@ bug the tests and drills found, is in [docs/ENGINEERING_JOURNAL.md](docs/ENGINEE
 | B6 Fail safely | 2026-11-24 | health from real traffic, mode machine, incidents, chaos proxy, break-glass plan, Control page; [resilience.md](docs/evidence/resilience.md): 11/11 drills pass |
 | B7 Observe | 2026-11-24 | Prometheus, Alertmanager, Loki, Grafana (4 dashboards as code), 16 alerts, 4 SLOs incl. the domain SLO; [observability.md](docs/evidence/observability.md) |
 | B8 Ship | 2026-11-24 | CI with e2e on the official simulator image, decision-quality gate, Trivy, GHCR + release; `deploy.sh` with automatic rollback; [loadtest-report.md](docs/evidence/loadtest-report.md) |
+| E1 Kubernetes | 2026-11-24 | Helm chart + kind; killed pod replaced in 7 s with the platform still deciding; api autoscales 2 → 6 under a 300-VU spike with 0 5xx; the engine's single-writer invariant asserted in CI; [kubernetes.md](docs/evidence/kubernetes.md) |
+| E2 Plain-language assistant | 2026-11-25 | explanations, shift handover, incident postmortem — the model may not introduce a number the platform did not compute; [assistant.md](docs/evidence/assistant.md) |
+| E3 N-1 contingency | 2026-11-25 | every route, depot and station removed in turn and the next day replayed closed-loop in 190-430 ms; two stations have no second route; [contingency.md](docs/evidence/contingency.md) |
+| E4 Scarcity & fairness | 2026-11-25 | per-station service levels, Jain index, cover ratio with hysteresis, and whether the binding constraint is supply, distribution or a pending approval; [fairness.md](docs/evidence/fairness.md) |
+| E9 Supply chain | 2026-11-25 | CycloneDX SBOM and a keyless cosign signature per image, attached to the release |
+| F1 Clean-clone test | 2026-11-25 | fresh clone from GitHub, two commands, console healthy in ~15 s; [clean-clone.md](docs/evidence/clean-clone.md) |
 
 ## Simulator behaviour we verified (image `asifmahmoud414/bup-fuel-supply-simulator:1.0.0`)
 
