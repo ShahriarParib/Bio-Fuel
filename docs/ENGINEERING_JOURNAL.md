@@ -340,6 +340,15 @@ Nothing here describes real fuel infrastructure.
 - **Judging criterion:** DevOps maturity, reproducibility, honesty of evidence.
 - **Demo line:** "This is not our folder. It is a fresh clone of the public repository, two commands, fifteen seconds."
 
+### E8: A browser in the pipeline (2026-11-25)
+- **Goal:** close the gap between "the console's unit tests pass" and "the console works".
+- **What we built:** `scripts/browser_smoke.py` — drives the real console in a real Chromium against the real stack and asserts 19 things, then runs in CI inside the e2e job while the stack is already up. Screenshots are uploaded as a build artifact.
+- **How / approach:** the component tests stub `fetch`, so they prove a component behaves *given a payload*. They cannot prove nginx proxies `/api`, that the SPA routes resolve instead of 404ing, that the analytics panels reach their endpoints, or that clicking **Approve** actually reaches the simulator. The browser test starts the paused simulator exactly as a judge would, waits for real ticks, then checks each of those — and fails on any uncaught JavaScript error, which no other test in the suite would notice.
+- **Tools:** Playwright 1.49.1, Chromium.
+- **Evidence:** 19/19 checks locally against the running stack, including an Approve click that moved a decision out of `PENDING_APPROVAL` in the simulator. In CI the same script runs against the official simulator image.
+- **Judging criterion:** testing depth, operator interface.
+- **Demo line:** "The pipeline opens a browser, clicks Approve, and checks the fuel actually moved."
+
 <!-- New entries go here, one per block (B1-B8, E1-E9). Copy the template below. -->
 
 ## 5. What we discovered about the simulator
