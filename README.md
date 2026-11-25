@@ -139,6 +139,7 @@ Measured on the simulator image, each with a test or a drill (details in the jou
 
 ```
 push → lint + unit (Python, TypeScript) → build images → e2e on the official simulator image → smoke
+     → browser smoke (real Chromium: routes, panels, Approve reaches the simulator)
      → decision-quality gate (SL ≥ 0.99, 0 failed shipments, 0 overflow) → metrics contract → Trivy
 tag v* → the same images pushed to GHCR (:vX.Y.Z, :sha) → GitHub Release with the evidence reports
 deploy → scripts/deploy.sh vX.Y.Z → health gate (version, readiness, smoke) → automatic rollback on failure
@@ -155,6 +156,7 @@ Branches: every change goes `feature/*` → `dev` (full check) → `main` (alway
 | metric contract | `bash scripts/check_metrics.sh` |
 | software bill of materials | `make sbom` → `sbom/fsip-*.cdx.json` |
 | clean-clone test (what a judge runs) | `bash scripts/clean_clone_test.sh` |
+| browser smoke (real Chromium, 19 checks) | `.venv/bin/python scripts/browser_smoke.py` |
 | assistant evidence | `.venv/bin/python scripts/demo/assistant_evidence.py` |
 | N-1 contingency evidence | `.venv/bin/python scripts/demo/n1_evidence.py --inject` |
 | fairness evidence | `.venv/bin/python scripts/demo/fairness_evidence.py` |

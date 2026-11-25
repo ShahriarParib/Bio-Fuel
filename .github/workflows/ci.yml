@@ -85,6 +85,16 @@ jobs:
         run: python evaluation/harness.py --scenario baseline --policy optimizer --ticks 96 --assert-sl 0.99 --assert-no-failures
       - name: metrics contract (every metric the dashboards, alerts and SLOs need)
         run: bash scripts/check_metrics.sh
+      - name: browser smoke (a real browser against the real stack)
+        # The console unit tests mock fetch, so they cannot prove nginx proxies /api, that the SPA routes resolve,
+        # or that clicking Approve reaches the simulator. This drives the actual UI and asserts that it does.
+        run: |
+          pip install playwright==1.49.1
+          playwright install --with-deps chromium
+          python scripts/browser_smoke.py --shots ci-screenshots
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: {name: console-screenshots, path: ci-screenshots/, retention-days: 7, if-no-files-found: ignore}
       - name: save images for the scan job
         run: |
           for s in $SERVICES; do docker image inspect fsip/$s:ci-${GITHUB_SHA::7} >/dev/null; done
