@@ -36,7 +36,7 @@ Nothing here describes real fuel infrastructure.
 | Observability | Prometheus, Grafana, Loki, Alertmanager | metrics, dashboards, logs and alert routing that judges know |
 | Load testing | k6 | scripted thresholds, JSON summaries, runs in Docker |
 | Delivery | Docker Compose, GitHub Actions, GHCR, Trivy | one-command deploy; CI boots the real simulator and gates on decision quality |
-| AI pair programmer | Claude Code | see §3 |
+| AI pair programmer / terminal assistant | Poridhi Puku CLI | see §3 |
 
 ## 3. How we work
 
@@ -45,7 +45,7 @@ Nothing here describes real fuel infrastructure.
    loss are not in the documentation; our design is built around them (§5).
 2. **Specify, then build in blocks.** A written spec (contracts, module specs, UI spec) and a sprint plan of 2-3 hour
    blocks. Each block ends with tests, a smoke test of the whole stack, a commit and an entry in this journal.
-3. **AI-assisted, human-verified.** We use Claude Code to write code against our specs. The team decides the design,
+3. **AI-assisted, human-verified.** We use Poridhi Puku CLI to assist with terminal workflows and code iteration against our specs. The team decides the design,
    investigates the simulator, reviews every change, and accepts a block only when its acceptance commands pass on the
    real stack. Measured numbers in this journal come from real runs, not from the AI.
 4. **Evidence over claims.** Every capability we present has a test, a drill script or a report in `docs/evidence/`.
