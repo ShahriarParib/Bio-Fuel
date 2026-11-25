@@ -8,6 +8,10 @@ with a human in the loop (or on a guarded autopilot), and keeps working when its
 
 > SIMULATED ENVIRONMENT. No real fuel infrastructure is accessed or controlled.
 
+## Live Demo
+
+https://github.com/user-attachments/assets/347411f0-c458-4c2b-892e-476c54d987b3
+
 ## Results (measured, reproducible)
 
 | Question | Answer | Evidence |
