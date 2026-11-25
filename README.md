@@ -12,6 +12,8 @@ with a human in the loop (or on a guarded autopilot), and keeps working when its
 
 https://github.com/user-attachments/assets/347411f0-c458-4c2b-892e-476c54d987b3
 
+> **Engineering Journal (PDF):** [FSIP_Full_Engineering_Journal.pdf](docs/FSIP_Full_Engineering_Journal.pdf) — full 15-page record of every design decision, simulator finding, and failure-drill bug fix ([Markdown](docs/ENGINEERING_JOURNAL.md)).
+
 ## Results (measured, reproducible)
 
 | Question | Answer | Evidence |
