@@ -69,6 +69,24 @@ own written summary — nothing breaks, and the badge on System Health says the 
 If the badge says *cooling down*, the provider failed three times in a row and is being asked once a minute instead
 of once a click. Explanations keep working from the written summaries meanwhile; no action is needed.
 
+## Verifying what you are about to run
+
+Every image published on a `v*` tag carries a CycloneDX SBOM and a keyless cosign signature bound to the workflow
+that built it, so you can check *who* built an image, not only that it has not been modified since.
+
+```bash
+cosign verify ghcr.io/shahriarparib/fsip-engine:v1.0.0 \
+  --certificate-identity-regexp 'https://github.com/ShahriarParib/Bio-Fuel/.github/workflows/ci.yml@.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+The SBOMs are attached to the GitHub Release and, as an attestation, to the images themselves
+(`cosign download attestation ...`). Locally, `make sbom` writes the same documents for the images you just built.
+
+Signing happens on a best-effort basis: it depends on Sigstore, a third party we do not control, and a release
+must not be blocked by someone else's outage. A failed signing step is loud in the CI log and leaves the images
+published and usable, unsigned.
+
 ## When something is red
 
 Look at **System Health** first: the mode, the reasons line, and the incident timeline say what the platform already
