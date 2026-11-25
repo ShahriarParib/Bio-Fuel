@@ -94,7 +94,7 @@ export function RecommendationCard({ d, tick, canAct }: { d: Decision; tick: num
             className="flex items-center gap-1 rounded border border-bg-border px-3 py-1 text-sm text-ink-muted hover:bg-bg-raised disabled:opacity-40"
             data-testid="reject-btn"><X size={14} /> Reject</button>
           <button disabled={!canAct || approve.isPending} onClick={() => approve.mutate({ id: d.id })}
-            className="flex items-center gap-1 rounded bg-brand px-3 py-1 text-sm font-medium text-white hover:bg-brand/80 disabled:opacity-40"
+            className="flex items-center gap-1 rounded bg-brand px-3 py-1 text-sm font-semibold text-bg hover:bg-white disabled:opacity-40"
             data-testid="approve-btn"><Check size={14} /> {approve.isPending ? "Sending…" : "Approve & dispatch"}</button>
         </div>
         {!canAct && <div className="w-full text-right text-xs text-ink-faint">Enter the operator token (top right) to act.</div>}
