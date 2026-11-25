@@ -116,17 +116,30 @@ jobs:
             echo "::endgroup::"
           done
           exit $fail
+      - name: software bill of materials (CycloneDX, one per image)
+        run: |
+          mkdir -p sbom
+          for s in $SERVICES; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/sbom:/out"               aquasec/trivy:0.57.1 image --format cyclonedx --output /out/fsip-$s.cdx.json               --no-progress fsip/$s:ci-${GITHUB_SHA::7}
+            echo "$s: $(python3 -c "import json,sys; print(len(json.load(open('sbom/fsip-$s.cdx.json'))['components']), 'components')")"
+          done
+      - uses: actions/upload-artifact@v4
+        with: {name: sbom, path: sbom/, retention-days: 90}
 
   publish:
     name: package → GHCR + GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [scan]
     runs-on: ubuntu-latest
-    permissions: {contents: write, packages: write}
+    # id-token lets cosign sign without us storing a private key: the signature is bound to this
+    # workflow's identity, so anyone can verify WHO built an image, not just that it is unmodified.
+    permissions: {contents: write, packages: write, id-token: write}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: {name: images}
+      - uses: actions/download-artifact@v4
+        with: {name: sbom, path: sbom}
       - run: gunzip -c images.tar.gz | docker load
       - uses: docker/login-action@v3
         with: {registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}"}
@@ -140,14 +153,47 @@ jobs:
               docker tag $src ghcr.io/$owner/fsip-$s:$tag && docker push ghcr.io/$owner/fsip-$s:$tag
             done
           done
+      - uses: sigstore/cosign-installer@v3.7.0
+      - name: sign the published images and attach their SBOMs
+        # Keyless signing depends on a third party (Fulcio/Rekor) we do not control, and the same lesson applies
+        # here as everywhere else in this project: an outside dependency must not be able to break our release.
+        # A failure here is loud in the log and leaves the images published and usable, unsigned.
+        continue-on-error: true
+        run: |
+          owner=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          ver=${GITHUB_REF_NAME}
+          for s in $SERVICES; do
+            ref=ghcr.io/$owner/fsip-$s:$ver
+            digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$ref")
+            echo "signing $digest"
+            cosign sign --yes "$digest"
+            cosign attest --yes --type cyclonedx --predicate sbom/fsip-$s.cdx.json "$digest"
+          done
+          echo "verify with:"
+          echo "  cosign verify ghcr.io/$owner/fsip-engine:$ver \\"
+          echo "    --certificate-identity-regexp 'https://github.com/${GITHUB_REPOSITORY}/.github/workflows/ci.yml@.*' \\"
+          echo "    --certificate-oidc-issuer https://token.actions.githubusercontent.com"
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             docs/evidence/evaluation.md
             docs/evidence/resilience.md
             docs/evidence/observability.md
+            docs/evidence/contingency.md
+            docs/evidence/fairness.md
+            docs/evidence/kubernetes.md
+            docs/evidence/assistant.md
+            sbom/*.cdx.json
           body: |
             Images: `ghcr.io/<owner>/fsip-{engine,api,intelligence,frontend}:${{ github.ref_name }}`
             Deploy: `scripts/deploy.sh ${{ github.ref_name }}` (health gate + automatic rollback).
             These exact images passed unit tests, e2e against the official simulator image, the decision-quality gate
             and a Trivy scan (no fixable CRITICAL vulnerabilities).
+
+            A CycloneDX SBOM is attached for each image, and the images are signed keylessly with cosign:
+
+            ```
+            cosign verify ghcr.io/<owner>/fsip-engine:${{ github.ref_name }} \
+              --certificate-identity-regexp 'https://github.com/${{ github.repository }}/.github/workflows/ci.yml@.*' \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com
+            ```

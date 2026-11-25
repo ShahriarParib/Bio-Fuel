@@ -3,7 +3,7 @@ COMPOSE := docker compose
 PY := .venv/bin/python
 SERVICES := engine intelligence api
 
-.PHONY: help venv up obs-up chaos-up chaos-down chaos down down-v ps logs smoke test test-common lint fixtures fe-test fe-build k8s-lint k8s-up k8s-demo k8s-ps k8s-down
+.PHONY: help venv up obs-up chaos-up chaos-down chaos down down-v ps logs smoke test test-common lint fixtures fe-test fe-build sbom k8s-lint k8s-up k8s-demo k8s-ps k8s-down
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -62,6 +62,15 @@ fe-test:
 
 fe-build:
 	cd frontend && npm ci && npm run build
+
+sbom: ## CycloneDX software bill of materials for every image -> sbom/
+	@mkdir -p sbom
+	@for s in $(SERVICES); do \
+		docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$(PWD)/sbom:/out" \
+			aquasec/trivy:0.57.1 image --format cyclonedx --output /out/fsip-$$s.cdx.json --no-progress \
+			fsip/$$s:$${APP_VERSION:-dev} || exit 1; \
+		echo "sbom/fsip-$$s.cdx.json"; \
+	done
 
 # ---------------------------------------------------------------- Kubernetes (local kind cluster)
 k8s-lint: ## validate the Helm chart (lint + render + kubectl dry-run)
