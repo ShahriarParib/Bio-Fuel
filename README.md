@@ -16,9 +16,21 @@ constraint, executes safely with human-in-the-loop or guarded autopilot, and sel
 
 ---
 
-## Live Demo & Engineering Journal
+## Live Demos & Engineering Journal
+
+### 1. Local Machine Demo (WSL2 + Docker Compose + Grafana + Puku CLI)
+Full walkthrough running locally on Docker Compose with Prometheus/Grafana observability, advisory approval flow, crisis fault injection, and Poridhi Puku CLI SRE diagnostics:
 
 https://github.com/user-attachments/assets/347411f0-c458-4c2b-892e-476c54d987b3
+
+### 2. Cloud Deployment Demo (Poridhi Playground + Load Balancer)
+Live clean-clone deployment running inside a Poridhi cloud sandbox (`docker compose` across 7 containers on 3.8 GB RAM) and exposed publicly via **Poridhi Load Balancer** (`100.80.134.219:3005`):
+
+https://github.com/user-attachments/assets/a1b903fc-24f7-4033-a3ac-8cd084e480c6
+
+| Poridhi Load Balancer Endpoint Mapping |
+| :---: |
+| ![Poridhi Load Balancer Deployment](docs/evidence/screenshots/poridhi-deployment.png) |
 
 > **Full 15-Page Engineering Journal (PDF):** [FSIP_Full_Engineering_Journal.pdf](docs/FSIP_Full_Engineering_Journal.pdf) ·
 > [Markdown Source](docs/ENGINEERING_JOURNAL.md) ·
