@@ -18,10 +18,10 @@ constraint, executes safely with human-in-the-loop or guarded autopilot, and sel
 
 ## Live Demos & Engineering Journal
 
-### 1. Local Machine Demo (WSL2 + Docker Compose + Grafana + Puku CLI)
-Full walkthrough running locally on Docker Compose with Prometheus/Grafana observability, advisory approval flow, crisis fault injection, and Poridhi Puku CLI SRE diagnostics:
+### 1. Local Machine Demo — Full Walkthrough (With Voice Explanation)
+Narrated page-by-page walkthrough running locally on Docker Compose (WSL2) covering Overview, LP optimization & Advisory approval, Risk/N-1/Fairness, Crisis & Chaos resilience, Grafana observability, and Poridhi Puku CLI:
 
-https://github.com/user-attachments/assets/347411f0-c458-4c2b-892e-476c54d987b3
+https://github.com/user-attachments/assets/b5957997-3f8d-4b16-9278-3f03e42c27f6
 
 ### 2. Cloud Deployment Demo (Poridhi Playground + Load Balancer)
 Live clean-clone deployment running inside a Poridhi cloud sandbox (`docker compose` across 7 containers on 3.8 GB RAM) and exposed publicly via **Poridhi Load Balancer** (`100.80.134.219:3005`):
