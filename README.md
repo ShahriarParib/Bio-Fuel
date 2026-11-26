@@ -16,6 +16,19 @@ constraint, executes safely with human-in-the-loop or guarded autopilot, and sel
 
 ---
 
+## Live Cloud Deployment (AWS EC2)
+
+The complete FSIP stack (core platform + full Prometheus/Grafana/Loki observability profile) is deployed live on **AWS EC2** (`m7i-flex.large` · 2 vCPU · 8 GiB RAM · Ubuntu 24.04 LTS · `SMOKE OK`):
+
+| Service | Live Public URL | Access |
+|---|---|---|
+| **Operator Console (FSIP UI)** | http://16.178.217.62:3000 | Live read-only view; sign-in token provided to evaluators |
+| **Grafana Dashboards (FSIP Folder)** | http://16.178.217.62:13001 | Anonymous viewer enabled (4 live dashboards) |
+
+*(In addition to AWS EC2, we also verified clean-clone cloud deployment inside Poridhi Playground behind Poridhi Load Balancer — see Cloud Demo #2 below.)*
+
+---
+
 ## Live Demos & Engineering Journal
 
 ### 1. Local Machine Demo — Full Walkthrough (With Voice Explanation)
